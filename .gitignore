@@ -1,0 +1,4 @@
+node_modules/
+dist/
+trailer-output/
+.DS_Store
