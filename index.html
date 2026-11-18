@@ -1,0 +1,2476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Desk Chess XR — Gaze + Hands 3D Spatial Chess (Meta VR Start 2026)</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Cinzel:wght@600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 50% 32%, #4a1c07 0%, #240c02 48%, #070301 100%);
+      color: #f8fafc;
+    }
+    body.passthrough-active {
+      background: radial-gradient(circle at 50% 45%, rgba(28, 38, 52, 0.55) 0%, rgba(12, 17, 26, 0.85) 100%);
+    }
+    #canvas-container {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+    /* Reference Screenshot Circular Glass Pill Buttons (MENU / RESET / EDIT) */
+    .ref-circle-btn {
+      width: 58px;
+      height: 58px;
+      border-radius: 9999px;
+      background: radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.22), rgba(20, 12, 8, 0.68) 70%);
+      border: 1.5px solid rgba(255, 235, 200, 0.35);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55), inset 0 1px 3px rgba(255, 255, 255, 0.3);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      backdrop-filter: blur(8px);
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+    }
+    .ref-circle-btn:hover {
+      transform: translateY(-2px) scale(1.05);
+      border-color: rgba(251, 191, 36, 0.85);
+      box-shadow: 0 8px 22px rgba(245, 158, 11, 0.35), inset 0 1px 4px rgba(255, 255, 255, 0.5);
+    }
+    .ref-circle-btn:active, .ref-circle-btn.active-pill {
+      transform: scale(0.97);
+      background: radial-gradient(circle at 35% 25%, rgba(245, 158, 11, 0.55), rgba(120, 35, 10, 0.85) 75%);
+      border-color: #fbbf24;
+    }
+    /* Reference Bottom Caption Text */
+    .ref-bottom-caption {
+      font-family: 'Inter', sans-serif;
+      font-size: clamp(14px, 2vw, 21px);
+      font-weight: 500;
+      color: #f3f4f6;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,0.85);
+      letter-spacing: 0.01em;
+    }
+    .spatial-glass {
+      background: rgba(17, 12, 9, 0.78);
+      border: 1px solid rgba(251, 191, 36, 0.25);
+      backdrop-filter: blur(14px);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+    }
+    .gaze-cursor {
+      position: fixed;
+      width: 28px;
+      height: 28px;
+      border-radius: 9999px;
+      border: 2px solid rgba(56, 189, 248, 0.9);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.75), inset 0 0 8px rgba(56, 189, 248, 0.5);
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      z-index: 40;
+      display: none;
+      transition: width 0.12s ease, height 0.12s ease, border-color 0.12s ease;
+    }
+    .gaze-cursor.pinching {
+      width: 18px;
+      height: 18px;
+      border-color: #fbbf24;
+      background: rgba(251, 191, 36, 0.35);
+      box-shadow: 0 0 20px rgba(251, 191, 36, 0.95);
+    }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+    ::-webkit-scrollbar-thumb { background: rgba(251, 191, 36, 0.35); border-radius: 9999px; }
+  </style>
+</head>
+<body class="select-none">
+  <!-- 3D WebGL / WebXR Viewport -->
+  <div id="canvas-container"></div>
+
+  <!-- Gaze Reticle Overlay for Eye/Head Gaze + Pinch Mode -->
+  <div id="gaze-reticle" class="gaze-cursor"></div>
+
+  <!-- Top Bar: Left Reference Circular Buttons (MENU, RESET, EDIT) + Right Spatial XR & Hackathon Controls -->
+  <div class="fixed top-3 left-3 right-3 z-30 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+    <!-- Exact Reference Top-Left Buttons -->
+    <div class="flex items-center gap-2.5 pointer-events-auto">
+      <button id="btn-menu" class="ref-circle-btn" title="Open Game & Multiplayer Menu">MENU</button>
+      <button id="btn-reset" class="ref-circle-btn" title="Reset Match">RESET</button>
+      <button id="btn-edit" class="ref-circle-btn" title="Toggle Board Editor / Free Setup">EDIT</button>
+      <div class="hidden sm:flex items-center gap-2 ml-2 px-3 py-1.5 rounded-full spatial-glass text-xs text-amber-200/90">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="xr-mode-badge">IWSDK Gaze + Hands Ready</span>
+      </div>
+    </div>
+
+    <!-- Right XR / Calibration / Camera / Trailer Controls -->
+    <div class="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+      <button id="btn-calibrate" class="px-3 py-2 rounded-full spatial-glass text-xs font-semibold text-cyan-300 hover:bg-cyan-950/60 hover:border-cyan-400/60 transition flex items-center gap-1.5" title="Two-Palm Desk Surface Calibration">
+        <span>🖐️🖐️</span>
+        <span>Calibrate Desk</span>
+      </button>
+      <button id="btn-interaction-mode" class="px-3 py-2 rounded-full spatial-glass text-xs font-semibold text-amber-300 hover:bg-amber-950/60 hover:border-amber-400/60 transition" title="Cycle Interaction Mode">
+        👁️+🤏 Gaze &amp; Hand Grab
+      </button>
+      <button id="btn-camera-angle" class="px-3 py-2 rounded-full spatial-glass text-xs font-semibold text-stone-200 hover:bg-stone-800/70 transition" title="Cycle Camera Perspective (Matching Reference Angles)">
+        🎥 View: White Perspective
+      </button>
+      <button id="btn-passthrough" class="px-3 py-2 rounded-full spatial-glass text-xs font-semibold text-purple-300 hover:bg-purple-950/60 transition" title="Toggle AR Desk Passthrough vs Classic Amber Wood Study">
+        🥽 AR Office Desk
+      </button>
+      <button id="btn-trailer" class="px-3.5 py-2 rounded-full bg-gradient-to-r from-amber-500 to-red-600 text-xs font-bold text-white shadow-lg hover:from-amber-400 hover:to-red-500 transition flex items-center gap-1.5" title="Run Automated 45s Camera-Bobbing Gameplay Trailer & Capture Video">
+        <span>🎬</span>
+        <span id="trailer-btn-label">45s Trailer</span>
+      </button>
+      <button id="btn-enter-xr" class="px-3.5 py-2 rounded-full bg-cyan-600 hover:bg-cyan-500 text-xs font-bold text-white shadow-lg transition" title="Start Native WebXR Session on Meta Quest / Glasses">
+        Enter XR
+      </button>
+      <button id="btn-sound" class="w-9 h-9 rounded-full spatial-glass text-sm flex items-center justify-center text-amber-200 hover:border-amber-400 transition" title="Toggle Spatial Audio">
+        🔊
+      </button>
+    </div>
+  </div>
+
+  <!-- Left Floating Panel: 3D Spatial Evaluation Pillar Mirror & Tactical Threat Coach -->
+  <div id="left-hud-panel" class="fixed left-3 top-20 z-20 w-56 rounded-2xl spatial-glass p-3 text-xs space-y-2.5 pointer-events-auto transition-transform duration-300">
+    <div class="flex items-center justify-between border-b border-amber-500/20 pb-1.5">
+      <span class="font-bold text-amber-300 tracking-wide uppercase text-[11px]">Spatial Eval &amp; Coach</span>
+      <span id="eval-score-badge" class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-200 font-mono font-bold">+0.2</span>
+    </div>
+    <!-- 2D Mirror of the 3D Spatial Evaluation Bar -->
+    <div class="w-full h-3 rounded-full bg-red-950 overflow-hidden border border-amber-500/30 flex">
+      <div id="eval-bar-fill" class="h-full bg-gradient-to-r from-amber-200 via-amber-400 to-yellow-300 transition-all duration-500" style="width: 52%;"></div>
+    </div>
+    <div class="flex justify-between text-[10px] text-stone-400">
+      <span>Gold (White)</span>
+      <span id="material-balance-text">Equal Material</span>
+      <span>Crimson (Black)</span>
+    </div>
+    <!-- Gaze & Pinch Status Readout -->
+    <div class="rounded-xl bg-black/45 p-2 border border-cyan-500/20 space-y-1">
+      <div class="flex items-center justify-between text-[11px]">
+        <span class="text-cyan-300 font-semibold">👁️ Gaze Target:</span>
+        <span id="gaze-target-readout" class="font-mono text-white">e2 (White Pawn)</span>
+      </div>
+      <div class="flex items-center justify-between text-[11px]">
+        <span class="text-amber-300 font-semibold">🤏 Hand State:</span>
+        <span id="hand-state-readout" class="font-mono text-emerald-300">Open Palm (Ready)</span>
+      </div>
+      <div id="coach-tip" class="text-[11px] text-stone-300 leading-snug pt-1 border-t border-white/10">
+        Gaze at any gold piece and pinch (or click/drag) to levitate and see legal target rings.
+      </div>
+    </div>
+    <!-- Captured Pieces & Shatter Counter -->
+    <div class="space-y-1 pt-0.5">
+      <div class="flex items-center justify-between text-[10px] text-stone-400">
+        <span>Shattered Captures</span>
+        <span id="shatter-count-badge" class="text-red-400 font-semibold">0 shattered</span>
+      </div>
+      <div id="captured-white" class="min-h-[18px] text-sm tracking-tighter text-amber-300"></div>
+      <div id="captured-black" class="min-h-[18px] text-sm tracking-tighter text-red-400"></div>
+    </div>
+    <div class="pt-1 flex gap-1.5">
+      <button id="btn-ai-hint" class="flex-1 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/40 text-amber-200 font-semibold text-[11px] transition">
+        ⚡ Gaze Threat Hint
+      </button>
+      <button id="btn-test-shatter" class="py-1.5 px-2 rounded-lg bg-red-600/25 hover:bg-red-600/40 border border-red-400/40 text-red-200 font-semibold text-[11px] transition" title="Demo Battle Shatter FX">
+        💥 FX
+      </button>
+    </div>
+  </div>
+
+  <!-- Right Floating Panel: 3D Spatial Move-History Timeline Controls -->
+  <div id="right-hud-panel" class="fixed right-3 top-20 z-20 w-60 rounded-2xl spatial-glass p-3 text-xs space-y-2 pointer-events-auto">
+    <div class="flex items-center justify-between border-b border-amber-500/20 pb-1.5">
+      <span class="font-bold text-amber-300 tracking-wide uppercase text-[11px]">3D Move Timeline</span>
+      <span id="move-count-badge" class="text-[10px] text-stone-400 font-mono">Ply 0</span>
+    </div>
+    <div id="move-history-list" class="max-h-36 overflow-y-auto space-y-1 pr-1 font-mono text-[11px]">
+      <div class="text-stone-400 italic text-[11px]">No moves yet — pinch a piece or run 45s Trailer.</div>
+    </div>
+    <div class="flex items-center justify-between gap-1 pt-1 border-t border-white/10">
+      <button id="btn-undo" class="flex-1 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-[11px] transition">
+        ↩ Undo
+      </button>
+      <button id="btn-flip" class="flex-1 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-[11px] transition">
+        🔄 Flip Board
+      </button>
+      <button id="btn-ai-move" class="flex-1 py-1.5 rounded-lg bg-amber-600/40 hover:bg-amber-600/60 text-amber-100 font-semibold text-[11px] transition">
+        🤖 AI Move
+      </button>
+    </div>
+  </div>
+
+  <!-- Edit Mode Floating Palette (Shown when EDIT circular button is toggled) -->
+  <div id="edit-palette" class="hidden fixed bottom-14 left-1/2 -translate-x-1/2 z-30 rounded-2xl spatial-glass px-4 py-2.5 flex items-center gap-2 pointer-events-auto">
+    <span class="text-xs font-bold text-amber-300 mr-1">EDIT BOARD:</span>
+    <button data-edit-piece="wP" class="edit-tool-btn px-2 py-1 rounded bg-amber-500/30 border border-amber-400 text-xs font-bold">Gold ♙</button>
+    <button data-edit-piece="wN" class="edit-tool-btn px-2 py-1 rounded bg-stone-800 text-xs">♘</button>
+    <button data-edit-piece="wB" class="edit-tool-btn px-2 py-1 rounded bg-stone-800 text-xs">♗</button>
+    <button data-edit-piece="wR" class="edit-tool-btn px-2 py-1 rounded bg-stone-800 text-xs">♖</button>
+    <button data-edit-piece="wQ" class="edit-tool-btn px-2 py-1 rounded bg-stone-800 text-xs">♕</button>
+    <button data-edit-piece="bP" class="edit-tool-btn px-2 py-1 rounded bg-red-900/50 text-red-300 text-xs">Red ♟</button>
+    <button data-edit-piece="bN" class="edit-tool-btn px-2 py-1 rounded bg-red-900/50 text-red-300 text-xs">♞</button>
+    <button data-edit-piece="bB" class="edit-tool-btn px-2 py-1 rounded bg-red-900/50 text-red-300 text-xs">♝</button>
+    <button data-edit-piece="bR" class="edit-tool-btn px-2 py-1 rounded bg-red-900/50 text-red-300 text-xs">♜</button>
+    <button data-edit-piece="bQ" class="edit-tool-btn px-2 py-1 rounded bg-red-900/50 text-red-300 text-xs">♛</button>
+    <button data-edit-piece="clear" class="edit-tool-btn px-2 py-1 rounded bg-stone-700 text-xs text-rose-300">🗑️ Clear Sq</button>
+  </div>
+
+  <!-- Exact Reference Bottom Status Line -->
+  <div class="fixed bottom-3 left-0 right-0 z-20 text-center pointer-events-none px-4">
+    <p id="bottom-status-text" class="ref-bottom-caption">
+      It's White's turn to move (gaze &amp; pinch or grab a piece with your hand and place it on the chess board)
+    </p>
+  </div>
+
+  <!-- MENU Modal (Game Mode, AI Difficulty, Multiplayer Room Code, Camera Presets, Download Trailer) -->
+  <div id="menu-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="w-full max-w-lg rounded-3xl spatial-glass p-6 border border-amber-400/40 space-y-5 text-sm">
+      <div class="flex items-center justify-between border-b border-amber-500/20 pb-3">
+        <div>
+          <h2 class="text-xl font-extrabold text-amber-300 tracking-tight" style="font-family: 'Cinzel', serif;">DESK CHESS XR</h2>
+          <p class="text-xs text-stone-300">Meta VR Start Developer Competition 2026 • Gaze + Hands Edition</p>
+        </div>
+        <button id="btn-close-menu" class="w-8 h-8 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold">✕</button>
+      </div>
+
+      <!-- Opponent & Multiplayer Selection -->
+      <div class="space-y-2">
+        <label class="text-xs font-bold uppercase tracking-wider text-amber-200">1. Match Mode &amp; AI Opponent</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button data-mode="ai" class="mode-select-btn py-2.5 px-3 rounded-xl bg-amber-500/25 border border-amber-400 text-amber-100 font-semibold text-xs">
+            🤖 vs. Spatial AI Bot
+          </button>
+          <button data-mode="pass" class="mode-select-btn py-2.5 px-3 rounded-xl bg-stone-800/80 border border-white/10 text-stone-200 font-semibold text-xs">
+            👥 2P Seated Pass &amp; Play
+          </button>
+          <button data-mode="spectate" class="mode-select-btn py-2.5 px-3 rounded-xl bg-stone-800/80 border border-white/10 text-stone-200 font-semibold text-xs">
+            ⚔️ AI vs. AI Battle
+          </button>
+        </div>
+      </div>
+
+      <!-- AI Difficulty -->
+      <div class="space-y-2">
+        <label class="text-xs font-bold uppercase tracking-wider text-amber-200">2. AI Bot Tactical Depth</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button data-diff="1" class="diff-select-btn py-2 px-3 rounded-xl bg-stone-800/80 border border-white/10 text-stone-200 text-xs font-semibold">
+            Club Casual (Depth 2)
+          </button>
+          <button data-diff="2" class="diff-select-btn py-2 px-3 rounded-xl bg-amber-500/25 border border-amber-400 text-amber-100 text-xs font-semibold">
+            Tactical Master (Depth 3)
+          </button>
+          <button data-diff="3" class="diff-select-btn py-2 px-3 rounded-xl bg-stone-800/80 border border-white/10 text-stone-200 text-xs font-semibold">
+            Grandmaster Blitz
+          </button>
+        </div>
+      </div>
+
+      <!-- Multiplayer Room Code Sync (BroadcastChannel + Shareable Room Code) -->
+      <div class="rounded-2xl bg-black/45 p-3.5 border border-cyan-500/30 space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-cyan-300 uppercase tracking-wider">🌐 Instant Multiplayer Table Code</span>
+          <span id="mp-status-pill" class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono">Room: DESK-26</span>
+        </div>
+        <p class="text-xs text-stone-300 leading-relaxed">
+          Open this URL in two browser tabs or headsets on the same room code to sync moves, shatter explosions, and 3D timeline nodes live.
+        </p>
+        <div class="flex gap-2">
+          <input id="room-code-input" type="text" value="DESK-26" maxlength="12" class="flex-1 rounded-xl bg-stone-900 border border-white/15 px-3 py-1.5 text-xs font-mono text-white uppercase" />
+          <button id="btn-join-room" class="px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs">Sync Room</button>
+          <button id="btn-copy-fen" class="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs">Copy FEN</button>
+        </div>
+      </div>
+
+      <!-- Camera Angle Presets Matching User's 6 Reference Screenshots -->
+      <div class="space-y-2">
+        <label class="text-xs font-bold uppercase tracking-wider text-amber-200">3. Reference Camera Angles</label>
+        <div class="grid grid-cols-3 gap-2 text-xs">
+          <button data-cam="0" class="cam-preset-btn py-1.5 px-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200">1. Classic Front (795)</button>
+          <button data-cam="1" class="cam-preset-btn py-1.5 px-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200">2. Isometric Right (796)</button>
+          <button data-cam="2" class="cam-preset-btn py-1.5 px-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200">3. Low Side Sweep (797)</button>
+          <button data-cam="3" class="cam-preset-btn py-1.5 px-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200">4. Red King Level (798)</button>
+          <button data-cam="4" class="cam-preset-btn py-1.5 px-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200">5. Corner Diagonal (799)</button>
+          <button data-cam="5" class="cam-preset-btn py-1.5 px-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200">6. Overhead Corner (800)</button>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t border-white/10">
+        <button id="btn-new-game-modal" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs">Reset New Match</button>
+        <button id="btn-resume-modal" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs">Resume Play</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast-banner" class="hidden fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full spatial-glass border border-amber-400/60 text-xs font-semibold text-amber-200 shadow-2xl pointer-events-none"></div>
+
+  <script>
+    // =========================================================================
+    // 1. SPATIAL WEB AUDIO SYNTHESIZER (Wood Clack, Gaze Hum, Shatter Explosion, Calibration Chime)
+    // =========================================================================
+    class SpatialSoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.enabled = true;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) this.ctx = new AudioCtx();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+      playMoveClack(isCapture = false) {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        // Wood thud oscillator
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = isCapture ? 'sawtooth' : 'triangle';
+        osc.frequency.setValueAtTime(isCapture ? 190 : 145, now);
+        osc.frequency.exponentialRampToValueAtTime(42, now + (isCapture ? 0.16 : 0.09));
+        gain.gain.setValueAtTime(isCapture ? 0.45 : 0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + (isCapture ? 0.18 : 0.1));
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + (isCapture ? 0.19 : 0.11));
+      }
+      playShatterExplosion() {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        // White noise burst + crystalline chimes for shatter
+        const bufferSize = this.ctx.sampleRate * 0.45;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.12));
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(1400, now);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.5, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.44);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        noise.start(now);
+
+        // High crystal shard pings
+        [920, 1380, 1760, 2240].forEach((freq, idx) => {
+          const osc = this.ctx.createOscillator();
+          const g = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.035);
+          g.gain.setValueAtTime(0.12, now + idx * 0.035);
+          g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.035 + 0.22);
+          osc.connect(g);
+          g.connect(this.ctx.destination);
+          osc.start(now + idx * 0.035);
+          osc.stop(now + idx * 0.035 + 0.24);
+        });
+      }
+      playCalibrationPulse(progress) {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(320 + progress * 440, now);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.2);
+      }
+    }
+    const soundFX = new SpatialSoundEngine();
+
+    // =========================================================================
+    // 2. COMPLETE CHESS RULES ENGINE & MINIMAX/ALPHA-BETA AI BOT
+    // =========================================================================
+    const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    const PIECE_VALUES = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 20000 };
+    const UNICODE_PIECES = {
+      wK: '♔', wQ: '♕', wR: '♖', wB: '♗', wN: '♘', wP: '♙',
+      bK: '♚', bQ: '♛', bR: '♜', bB: '♝', bN: '♞', bP: '♟'
+    };
+
+    // Positional piece-square bonuses (encourages center control & development)
+    const PAWN_PST = [
+      [ 0,  0,  0,  0,  0,  0,  0,  0],
+      [50, 50, 50, 50, 50, 50, 50, 50],
+      [10, 10, 20, 30, 30, 20, 10, 10],
+      [ 5,  5, 10, 25, 25, 10,  5,  5],
+      [ 0,  0,  0, 20, 20,  0,  0,  0],
+      [ 5, -5,-10,  0,  0,-10, -5,  5],
+      [ 5, 10, 10,-20,-20, 10, 10,  5],
+      [ 0,  0,  0,  0,  0,  0,  0,  0]
+    ];
+    const KNIGHT_PST = [
+      [-50,-40,-30,-30,-30,-30,-40,-50],
+      [-40,-20,  0,  0,  0,  0,-20,-40],
+      [-30,  0, 10, 15, 15, 10,  0,-30],
+      [-30,  5, 15, 20, 20, 15,  5,-30],
+      [-30,  0, 15, 20, 20, 15,  0,-30],
+      [-30,  5, 10, 15, 15, 10,  5,-30],
+      [-40,-20,  0,  5,  5,  0,-20,-40],
+      [-50,-40,-30,-30,-30,-30,-40,-50]
+    ];
+
+    class ChessEngine {
+      constructor() {
+        this.reset();
+      }
+      reset() {
+        this.board = [
+          ['bR', 'bN', 'bB', 'bQ', 'bK', 'bB', 'bN', 'bR'],
+          ['bP', 'bP', 'bP', 'bP', 'bP', 'bP', 'bP', 'bP'],
+          [null, null, null, null, null, null, null, null],
+          [null, null, null, null, null, null, null, null],
+          [null, null, null, null, null, null, null, null],
+          [null, null, null, null, null, null, null, null],
+          ['wP', 'wP', 'wP', 'wP', 'wP', 'wP', 'wP', 'wP'],
+          ['wR', 'wN', 'wB', 'wQ', 'wK', 'wB', 'wN', 'wR']
+        ];
+        this.turn = 'w';
+        this.castling = { wK: true, wQ: true, bK: true, bQ: true };
+        this.enPassant = null; // { r, c }
+        this.history = [];
+        this.capturedWhite = [];
+        this.capturedBlack = [];
+        this.gameOver = false;
+        this.winner = null;
+        this.inCheck = false;
+      }
+
+      cloneState() {
+        return {
+          board: this.board.map(row => row.slice()),
+          turn: this.turn,
+          castling: { ...this.castling },
+          enPassant: this.enPassant ? { ...this.enPassant } : null,
+          capturedWhite: this.capturedWhite.slice(),
+          capturedBlack: this.capturedBlack.slice(),
+          gameOver: this.gameOver,
+          winner: this.winner,
+          inCheck: this.inCheck
+        };
+      }
+
+      restoreState(st) {
+        this.board = st.board.map(row => row.slice());
+        this.turn = st.turn;
+        this.castling = { ...st.castling };
+        this.enPassant = st.enPassant ? { ...st.enPassant } : null;
+        this.capturedWhite = st.capturedWhite.slice();
+        this.capturedBlack = st.capturedBlack.slice();
+        this.gameOver = st.gameOver;
+        this.winner = st.winner;
+        this.inCheck = st.inCheck;
+      }
+
+       inside(r, c) {
+        return r >= 0 && r < 8 && c >= 0 && c < 8;
+      }
+
+      coordToAlg(r, c) {
+        return FILES[c] + (8 - r);
+      }
+
+      algToCoord(alg) {
+        const c = FILES.indexOf(alg[0]);
+        const r = 8 - parseInt(alg[1], 10);
+        return { r, c };
+      }
+
+      findKing(color, board = this.board) {
+        const target = color + 'K';
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            if (board[r][c] === target) return { r, c };
+          }
+        }
+        return null;
+      }
+
+      isSquareAttacked(r, c, byColor, board = this.board) {
+        // Pawn attacks
+        const pawnDir = byColor === 'w' ? 1 : -1;
+        for (const dc of [-1, 1]) {
+          const pr = r + pawnDir;
+          const pc = c + dc;
+          if (this.inside(pr, pc) && board[pr][pc] === byColor + 'P') return true;
+        }
+        // Knight attacks
+        const kOffsets = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+        for (const [dr, dc] of kOffsets) {
+          const nr = r + dr, nc = c + dc;
+          if (this.inside(nr, nc) && board[nr][nc] === byColor + 'N') return true;
+        }
+        // King attacks
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const kr = r + dr, kc = c + dc;
+            if (this.inside(kr, kc) && board[kr][kc] === byColor + 'K') return true;
+          }
+        }
+        // Orthogonal (Rook / Queen)
+        const ortho = [[-1,0],[1,0],[0,-1],[0,1]];
+        for (const [dr, dc] of ortho) {
+          let nr = r + dr, nc = c + dc;
+          while (this.inside(nr, nc)) {
+            const p = board[nr][nc];
+            if (p) {
+              if (p === byColor + 'R' || p === byColor + 'Q') return true;
+              break;
+            }
+            nr += dr; nc += dc;
+          }
+        }
+        // Diagonal (Bishop / Queen)
+        const diag = [[-1,-1],[-1,1],[1,-1],[1,1]];
+        for (const [dr, dc] of diag) {
+          let nr = r + dr, nc = c + dc;
+          while (this.inside(nr, nc)) {
+            const p = board[nr][nc];
+            if (p) {
+              if (p === byColor + 'B' || p === byColor + 'Q') return true;
+              break;
+            }
+            nr += dr; nc += dc;
+          }
+        }
+        return false;
+      }
+
+      isInCheck(color, board = this.board) {
+        const k = this.findKing(color, board);
+        if (!k) return false;
+        const enemy = color === 'w' ? 'b' : 'w';
+        return this.isSquareAttacked(k.r, k.c, enemy, board);
+      }
+
+      getPseudoMovesForSquare(r, c, board = this.board) {
+        const piece = board[r][c];
+        if (!piece) return [];
+        const color = piece[0];
+        const type = piece[1];
+        const enemy = color === 'w' ? 'b' : 'w';
+        const moves = [];
+
+        if (type === 'P') {
+          const dir = color === 'w' ? -1 : 1;
+          const startRow = color === 'w' ? 6 : 1;
+          const nr = r + dir;
+          if (this.inside(nr, c) && !board[nr][c]) {
+            moves.push({ fromR: r, fromC: c, toR: nr, toC: c });
+            const nnr = r + dir * 2;
+            if (r === startRow && this.inside(nnr, c) && !board[nnr][c]) {
+              moves.push({ fromR: r, fromC: c, toR: nnr, toC: c, doublePush: true });
+            }
+          }
+          for (const dc of [-1, 1]) {
+            const nc = c + dc;
+            if (this.inside(nr, nc)) {
+              const target = board[nr][nc];
+              if (target && target[0] === enemy) {
+                moves.push({ fromR: r, fromC: c, toR: nr, toC: nc, capture: target });
+              } else if (this.enPassant && this.enPassant.r === nr && this.enPassant.c === nc) {
+                moves.push({ fromR: r, fromC: c, toR: nr, toC: nc, capture: enemy + 'P', enPassant: true });
+              }
+            }
+          }
+        } else if (type === 'N') {
+          const offsets = [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];
+          for (const [dr, dc] of offsets) {
+            const nr = r + dr, nc = c + dc;
+            if (!this.inside(nr, nc)) continue;
+            const target = board[nr][nc];
+            if (!target || target[0] === enemy) {
+              moves.push({ fromR: r, fromC: c, toR: nr, toC: nc, capture: target || null });
+            }
+          }
+        } else if (type === 'B' || type === 'R' || type === 'Q') {
+          const dirs = [];
+          if (type === 'B' || type === 'Q') dirs.push([-1,-1],[-1,1],[1,-1],[1,1]);
+          if (type === 'R' || type === 'Q') dirs.push([-1,0],[1,0],[0,-1],[0,1]);
+          for (const [dr, dc] of dirs) {
+            let nr = r + dr, nc = c + dc;
+            while (this.inside(nr, nc)) {
+              const target = board[nr][nc];
+              if (!target) {
+                moves.push({ fromR: r, fromC: c, toR: nr, toC: nc });
+              } else {
+                if (target[0] === enemy) {
+                  moves.push({ fromR: r, fromC: c, toR: nr, toC: nc, capture: target });
+                }
+                break;
+              }
+              nr += dr; nc += dc;
+            }
+          }
+        } else if (type === 'K') {
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              if (dr === 0 && dc === 0) continue;
+              const nr = r + dr, nc = c + dc;
+              if (!this.inside(nr, nc)) continue;
+              const target = board[nr][nc];
+              if (!target || target[0] === enemy) {
+                moves.push({ fromR: r, fromC: c, toR: nr, toC: nc, capture: target || null });
+              }
+            }
+          }
+          // Castling
+          const homeRow = color === 'w' ? 7 : 0;
+          if (r === homeRow && c === 4 && !this.isInCheck(color, board)) {
+            if (this.castling[color + 'K'] && !board[homeRow][5] && !board[homeRow][6]) {
+              if (!this.isSquareAttacked(homeRow, 5, enemy, board) && !this.isSquareAttacked(homeRow, 6, enemy, board)) {
+                moves.push({ fromR: r, fromC: c, toR: homeRow, toC: 6, castle: 'K' });
+              }
+            }
+            if (this.castling[color + 'Q'] && !board[homeRow][1] && !board[homeRow][2] && !board[homeRow][3]) {
+              if (!this.isSquareAttacked(homeRow, 3, enemy, board) && !this.isSquareAttacked(homeRow, 2, enemy, board)) {
+                moves.push({ fromR: r, fromC: c, toR: homeRow, toC: 2, castle: 'Q' });
+              }
+            }
+          }
+        }
+        return moves;
+      }
+
+      getLegalMovesForSquare(r, c) {
+        const piece = this.board[r][c];
+        if (!piece || piece[0] !== this.turn) return [];
+        const pseudo = this.getPseudoMovesForSquare(r, c);
+        const legal = [];
+        for (const m of pseudo) {
+          const testBoard = this.board.map(row => row.slice());
+          testBoard[m.toR][m.toC] = testBoard[m.fromR][m.fromC];
+          testBoard[m.fromR][m.fromC] = null;
+          if (m.enPassant) {
+            testBoard[m.fromR][m.toC] = null;
+          }
+          if (!this.isInCheck(this.turn, testBoard)) {
+            legal.push(m);
+          }
+        }
+        return legal;
+      }
+
+      getAllLegalMoves(color = this.turn) {
+        const savedTurn = this.turn;
+        this.turn = color;
+        const all = [];
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            if (this.board[r][c] && this.board[r][c][0] === color) {
+              const ms = this.getLegalMovesForSquare(r, c);
+              for (const m of ms) all.push(m);
+            }
+          }
+        }
+        this.turn = savedTurn;
+        return all;
+      }
+
+      makeMove(move) {
+        const snapshot = this.cloneState();
+        const piece = this.board[move.fromR][move.fromC];
+        if (!piece) return null;
+        const color = piece[0];
+        const type = piece[1];
+        let capturedPiece = this.board[move.toR][move.toC];
+
+        if (move.enPassant) {
+          capturedPiece = this.board[move.fromR][move.toC];
+          this.board[move.fromR][move.toC] = null;
+        }
+
+        this.board[move.toR][move.toC] = piece;
+        this.board[move.fromR][move.fromC] = null;
+
+        // Castling rook shift
+        if (move.castle === 'K') {
+          this.board[move.toR][5] = this.board[move.toR][7];
+          this.board[move.toR][7] = null;
+        } else if (move.castle === 'Q') {
+          this.board[move.toR][3] = this.board[move.toR][0];
+          this.board[move.toR][0] = null;
+        }
+
+        // Pawn promotion to Queen
+        let promoted = false;
+        if (type === 'P' && (move.toR === 0 || move.toR === 7)) {
+          this.board[move.toR][move.toC] = color + 'Q';
+          promoted = true;
+        }
+
+        // Update castling rights
+        if (piece === 'wK') { this.castling.wK = false; this.castling.wQ = false; }
+        if (piece === 'bK') { this.castling.bK = false; this.castling.bQ = false; }
+        if (move.fromR === 7 && move.fromC === 0) this.castling.wQ = false;
+        if (move.fromR === 7 && move.fromC === 7) this.castling.wK = false;
+        if (move.fromR === 0 && move.fromC === 0) this.castling.bQ = false;
+        if (move.fromR === 0 && move.fromC === 7) this.castling.bK = false;
+
+        // Update enPassant target
+        if (move.doublePush) {
+          this.enPassant = { r: (move.fromR + move.toR) / 2, c: move.fromC };
+        } else {
+          this.enPassant = null;
+        }
+
+        if (capturedPiece) {
+          if (capturedPiece[0] === 'w') this.capturedWhite.push(capturedPiece);
+          else this.capturedBlack.push(capturedPiece);
+        }
+
+        // Switch turn
+        this.turn = this.turn === 'w' ? 'b' : 'w';
+        this.inCheck = this.isInCheck(this.turn);
+        const nextMoves = this.getAllLegalMoves(this.turn);
+        let san = this.formatSAN(piece, move, capturedPiece, promoted, this.inCheck, nextMoves.length === 0);
+
+        if (nextMoves.length === 0) {
+          this.gameOver = true;
+          this.winner = this.inCheck ? (color === 'w' ? 'White (Gold)' : 'Black (Crimson)') : 'Draw (Stalemate)';
+        }
+
+        const evalCp = this.evaluatePosition();
+        const record = {
+          ply: this.history.length + 1,
+          piece,
+          fromR: move.fromR,
+          fromC: move.fromC,
+          toR: move.toR,
+          toC: move.toC,
+          capturedPiece,
+          promoted,
+          san,
+          evalCp,
+          snapshot
+        };
+        this.history.push(record);
+        return record;
+      }
+
+      undo() {
+        if (this.history.length === 0) return false;
+        const last = this.history.pop();
+        this.restoreState(last.snapshot);
+        return true;
+      }
+
+      formatSAN(piece, move, captured, promoted, isCheck, isMate) {
+        if (move.castle === 'K') return isMate ? 'O-O#' : (isCheck ? 'O-O+' : 'O-O');
+        if (move.castle === 'Q') return isMate ? 'O-O-O#' : (isCheck ? 'O-O-O+' : 'O-O-O');
+        const type = piece[1];
+        const dest = this.coordToAlg(move.toR, move.toC);
+        let s = '';
+        if (type !== 'P') s += type;
+        else if (captured) s += FILES[move.fromC];
+        if (captured) s += 'x';
+        s += dest;
+        if (promoted) s += '=Q';
+        if (isMate) s += '#';
+        else if (isCheck) s += '+';
+        return s;
+      }
+
+      // Returns centipawns from White's perspective (+100 = +1.0 pawn for White)
+      evaluatePosition(board = this.board) {
+        let score = 0;
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            const p = board[r][c];
+            if (!p) continue;
+            const color = p[0];
+            const type = p[1];
+            let val = PIECE_VALUES[type] || 0;
+            const pstRow = color === 'w' ? r : 7 - r;
+            if (type === 'P') val += PAWN_PST[pstRow][c];
+            else if (type === 'N') val += KNIGHT_PST[pstRow][c];
+            else if (type === 'B' || type === 'Q') {
+              // Center control bonus
+              if (r >= 2 && r <= 5 && c >= 2 && c <= 5) val += 14;
+            }
+            score += color === 'w' ? val : -val;
+          }
+        }
+        return score;
+      }
+
+      chooseBestMove(depth = 2) {
+        const legal = this.getAllLegalMoves(this.turn);
+        if (legal.length === 0) return null;
+        const maximizing = this.turn === 'w';
+
+        // Order captures first for better alpha-beta pruning
+        legal.sort((a, b) => (b.capture ? 10 : 0) - (a.capture ? 10 : 0));
+
+        let bestMove = legal[0];
+        let bestVal = maximizing ? -Infinity : Infinity;
+
+        for (const m of legal) {
+          const snap = this.cloneState();
+          this.applyQuickMove(m);
+          const val = this.minimax(depth - 1, -Infinity, Infinity, !maximizing);
+          this.restoreState(snap);
+          // Slight jitter so equal moves feel organic
+          const jitter = (Math.random() - 0.5) * 8;
+          if (maximizing && val + jitter > bestVal) {
+            bestVal = val + jitter;
+            bestMove = m;
+          } else if (!maximizing && val + jitter < bestVal) {
+            bestVal = val + jitter;
+            bestMove = m;
+          }
+        }
+        return bestMove;
+      }
+
+      applyQuickMove(m) {
+        const p = this.board[m.fromR][m.fromC];
+        this.board[m.toR][m.toC] = (p[1] === 'P' && (m.toR === 0 || m.toR === 7)) ? p[0] + 'Q' : p;
+        this.board[m.fromR][m.fromC] = null;
+        this.turn = this.turn === 'w' ? 'b' : 'w';
+      }
+
+      minimax(depth, alpha, beta, maximizing) {
+        if (depth <= 0) return this.evaluatePosition();
+        const moves = this.getAllLegalMoves(maximizing ? 'w' : 'b');
+        if (moves.length === 0) {
+          return this.evaluatePosition();
+        }
+        if (maximizing) {
+          let maxEval = -Infinity;
+          for (let i = 0; i < Math.min(moves.length, 18); i++) {
+            const snap = this.cloneState();
+            this.applyQuickMove(moves[i]);
+            const ev = this.minimax(depth - 1, alpha, beta, false);
+            this.restoreState(snap);
+            if (ev > maxEval) maxEval = ev;
+            if (ev > alpha) alpha = ev;
+            if (beta <= alpha) break;
+          }
+          return maxEval;
+        } else {
+          let minEval = Infinity;
+          for (let i = 0; i < Math.min(moves.length, 18); i++) {
+            const snap = this.cloneState();
+            this.applyQuickMove(moves[i]);
+            const ev = this.minimax(depth - 1, alpha, beta, true);
+            this.restoreState(snap);
+            if (ev < minEval) minEval = ev;
+            if (ev < beta) beta = ev;
+            if (beta <= alpha) break;
+          }
+          return minEval;
+        }
+      }
+
+      toFEN() {
+        let fen = '';
+        for (let r = 0; r < 8; r++) {
+          let empty = 0;
+          for (let c = 0; c < 8; c++) {
+            const p = this.board[r][c];
+            if (!p) empty++;
+            else {
+              if (empty > 0) { fen += empty; empty = 0; }
+              const ch = p[1];
+              fen += p[0] === 'w' ? ch.toUpperCase() : ch.toLowerCase();
+            }
+          }
+          if (empty > 0) fen += empty;
+          if (r < 7) fen += '/';
+        }
+        fen += ` ${this.turn} - - 0 ${Math.floor(this.history.length / 2) + 1}`;
+        return fen;
+      }
+    }
+
+    // =========================================================================
+    // 3. PROCEDURAL TEXTURES & STAUNTON 3D CHESS GEOMETRY BUILDER (THREE.JS)
+    // =========================================================================
+    function createWoodGrainTexture(baseHex, grainHex, isLightSquare = false) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = baseHex;
+      ctx.fillRect(0, 0, 512, 512);
+
+      // Organic wood grain fibers
+      ctx.strokeStyle = grainHex;
+      for (let i = 0; i < (isLightSquare ? 110 : 220); i++) {
+        ctx.globalAlpha = isLightSquare ? (0.04 + Math.random() * 0.05) : (0.08 + Math.random() * 0.14);
+        ctx.lineWidth = 1 + Math.random() * 3.2;
+        ctx.beginPath();
+        const yBase = Math.random() * 512;
+        ctx.moveTo(0, yBase);
+        for (let x = 0; x <= 512; x += 32) {
+          const wave = Math.sin(x * 0.015 + i) * (isLightSquare ? 4 : 9);
+          ctx.lineTo(x, yBase + wave);
+        }
+        ctx.stroke();
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      return tex;
+    }
+
+    // Creates the exact border with A-H and 1-8 coordinate labels on all 4 sides like Screenshot (795)-(800)
+    function createCoordinateBorderTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1024;
+      canvas.height = 1024;
+      const ctx = canvas.getContext('2d');
+
+      // Warm ivory/cream inner border surface with subtle sheen
+      const grad = ctx.createLinearGradient(0, 0, 1024, 1024);
+      grad.addColorStop(0, '#d8cfb8');
+      grad.addColorStop(0.5, '#c7bc9f');
+      grad.addColorStop(1, '#b6aa8c');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      // Outer & inner fine dark bevel line
+      ctx.strokeStyle = '#3b2410';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(4, 4, 1016, 1016);
+      ctx.lineWidth = 4;
+      ctx.strokeRect(68, 68, 888, 888);
+
+      // Draw A-H along bottom and top, 1-8 along left and right
+      ctx.fillStyle = '#111111';
+      ctx.font = 'bold 38px Inter, Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      const innerStart = 68;
+      const innerSize = 888;
+      const sqPx = innerSize / 8;
+
+      const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+      for (let i = 0; i < 8; i++) {
+        const cx = innerStart + sqPx * (i + 0.5);
+        // Bottom A-H (White side)
+        ctx.fillText(letters[i], cx, 1024 - 34);
+        // Top A-H (Rotated for Black side)
+        ctx.save();
+        ctx.translate(cx, 34);
+        ctx.rotate(Math.PI);
+        ctx.fillText(letters[i], 0, 0);
+        ctx.restore();
+
+        // Left 1-8 (from bottom 1 to top 8)
+        const rankLabel = String(8 - i);
+        const cy = innerStart + sqPx * (i + 0.5);
+        ctx.fillText(rankLabel, 34, cy);
+        // Right 1-8
+        ctx.fillText(rankLabel, 1024 - 34, cy);
+      }
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.anisotropy = 4;
+      return tex;
+    }
+
+    // Build realistic Staunton 3D chess piece meshes matching the gold & crimson red reference screenshots
+    function buildStauntonPieceMesh(type, material) {
+      const group = new THREE.Group();
+      const latheSegs = 28;
+
+      const makeLathe = (pts) => {
+        const vecs = pts.map(([x, y]) => new THREE.Vector2(x, y));
+        const geom = new THREE.LatheGeometry(vecs, latheSegs);
+        const mesh = new THREE.Mesh(geom, material);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        return mesh;
+      };
+
+      // Shared base profile for all Staunton pieces
+      const basePts = [
+        [0.0, 0.0], [0.36, 0.0], [0.36, 0.06], [0.33, 0.11],
+        [0.35, 0.15], [0.28, 0.20], [0.24, 0.24]
+      ];
+
+      if (type === 'P') {
+        const pts = [
+          ...basePts,
+          [0.18, 0.38], [0.13, 0.58], [0.21, 0.63], [0.14, 0.67], [0.0, 0.68]
+        ];
+        group.add(makeLathe(pts));
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 24, 20), material);
+        head.position.y = 0.82;
+        head.castShadow = true;
+        group.add(head);
+      } else if (type === 'R') {
+        const pts = [
+          ...basePts,
+          [0.23, 0.42], [0.20, 0.78], [0.25, 0.83], [0.25, 0.96], [0.16, 0.96], [0.16, 0.88], [0.0, 0.88]
+        ];
+        group.add(makeLathe(pts));
+        // 6 crenelated battlements around top crown
+        for (let i = 0; i < 6; i++) {
+          const ang = (i / 6) * Math.PI * 2;
+          const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.07), material);
+          tooth.position.set(Math.cos(ang) * 0.20, 1.0, Math.sin(ang) * 0.20);
+          tooth.rotation.y = -ang;
+          tooth.castShadow = true;
+          group.add(tooth);
+        }
+      } else if (type === 'N') {
+        // Pedestal base
+        const pts = [
+          ...basePts,
+          [0.22, 0.34], [0.0, 0.35]
+        ];
+        group.add(makeLathe(pts));
+        // Sculpted Knight Horse Chest, Neck, Head, Snout, Ears & Mane
+        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.21, 0.52, 18), material);
+        neck.position.set(0, 0.58, -0.02);
+        neck.rotation.x = 0.22;
+        neck.castShadow = true;
+        group.add(neck);
+
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 18, 16), material);
+        head.scale.set(0.82, 1.05, 1.25);
+        head.position.set(0, 0.86, 0.04);
+        head.castShadow = true;
+        group.add(head);
+
+        const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.13, 0.28, 16), material);
+        snout.position.set(0, 0.80, 0.19);
+        snout.rotation.x = 1.15;
+        snout.castShadow = true;
+        group.add(snout);
+
+        // Mane ridge
+        const mane = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.48, 0.12), material);
+        mane.position.set(0, 0.66, -0.14);
+        mane.rotation.x = 0.18;
+        mane.castShadow = true;
+        group.add(mane);
+
+        // Two pointed ears
+        for (const side of [-1, 1]) {
+          const ear = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.14, 10), material);
+          ear.position.set(side * 0.075, 1.04, -0.02);
+          ear.rotation.x = -0.15;
+          ear.castShadow = true;
+          group.add(ear);
+        }
+      } else if (type === 'B') {
+        const pts = [
+          ...basePts,
+          [0.20, 0.42], [0.14, 0.72], [0.22, 0.76], [0.15, 0.80],
+          [0.21, 0.94], [0.18, 1.08], [0.08, 1.18], [0.0, 1.20]
+        ];
+        group.add(makeLathe(pts));
+        const finial = new THREE.Mesh(new THREE.SphereGeometry(0.055, 14, 14), material);
+        finial.position.y = 1.24;
+        finial.castShadow = true;
+        group.add(finial);
+      } else if (type === 'Q') {
+        const pts = [
+          ...basePts,
+          [0.22, 0.45], [0.15, 0.82], [0.24, 0.87], [0.17, 0.92],
+          [0.22, 1.12], [0.27, 1.26], [0.16, 1.22], [0.0, 1.25]
+        ];
+        group.add(makeLathe(pts));
+        // Coronet crown pearls
+        for (let i = 0; i < 8; i++) {
+          const ang = (i / 8) * Math.PI * 2;
+          const pearl = new THREE.Mesh(new THREE.SphereGeometry(0.042, 12, 12), material);
+          pearl.position.set(Math.cos(ang) * 0.23, 1.29, Math.sin(ang) * 0.23);
+          pearl.castShadow = true;
+          group.add(pearl);
+        }
+        const topBall = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 16), material);
+        topBall.position.y = 1.32;
+        topBall.castShadow = true;
+        group.add(topBall);
+      } else if (type === 'K') {
+        const pts = [
+          ...basePts,
+          [0.23, 0.48], [0.16, 0.88], [0.26, 0.93], [0.18, 0.99],
+          [0.23, 1.20], [0.27, 1.34], [0.12, 1.38], [0.0, 1.38]
+        ];
+        group.add(makeLathe(pts));
+        // Royal Cross Finial at summit
+        const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.22, 0.065), material);
+        crossV.position.y = 1.48;
+        crossV.castShadow = true;
+        group.add(crossV);
+        const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.065, 0.065), material);
+        crossH.position.y = 1.50;
+        crossH.castShadow = true;
+        group.add(crossH);
+      }
+      return group;
+    }
+
+    // =========================================================================
+    // 4. MAIN 3D SCENE, GAZE + HANDS INTERACTION, SHATTER FX & TRAILER DIRECTOR
+    // =========================================================================
+    const SQ_SIZE = 1.0;
+    const BOARD_OFFSET = 3.5 * SQ_SIZE;
+
+    function squareToWorld(r, c) {
+      return new THREE.Vector3((c - 3.5) * SQ_SIZE, 0, (r - 3.5) * SQ_SIZE);
+    }
+
+    // Reference Camera Presets matching Screenshot (795) through (800)
+    const CAMERA_PRESETS = [
+      { name: 'White Perspective (795)', pos: new THREE.Vector3(0, 6.9, 6.7), look: new THREE.Vector3(0, 0.1, 0.2) },
+      { name: 'Isometric Right (796)',   pos: new THREE.Vector3(6.2, 5.2, 5.8), look: new THREE.Vector3(0, 0.2, 0) },
+      { name: 'Low Side Sweep (797)',    pos: new THREE.Vector3(6.8, 3.3, -4.5), look: new THREE.Vector3(0, 0.2, 0) },
+      { name: 'Red King Level (798)',    pos: new THREE.Vector3(0, 2.35, -7.8), look: new THREE.Vector3(0, 0.45, 0) },
+      { name: 'Corner Diagonal (799)',   pos: new THREE.Vector3(-6.4, 5.1, -5.8), look: new THREE.Vector3(0, 0.2, 0) },
+      { name: 'Overhead Corner (800)',   pos: new THREE.Vector3(-5.5, 7.6, 5.5), look: new THREE.Vector3(0, 0.1, 0) }
+    ];
+
+    class DeskChessXRApp {
+      constructor() {
+        this.container = document.getElementById('canvas-container');
+        this.engine = new ChessEngine();
+
+        this.matchMode = 'ai'; // 'ai' | 'pass' | 'spectate'
+        this.aiDepth = 2;
+        this.editMode = false;
+        this.selectedEditTool = 'wQ';
+        this.interactionMode = 'both'; // 'both' | 'gaze' | 'direct'
+        this.passthroughMode = false;
+        this.flipped = false;
+        this.camPresetIdx = 0;
+
+        this.selectedSquare = null; // { r, c }
+        this.legalMoves = [];
+        this.hoveredSquare = null;  // { r, c }
+        this.isPinching = false;
+        this.levitatingMesh = null;
+
+        this.pieceMeshes = {}; // key "r,c" -> THREE.Group
+        this.squareMeshes = [];
+        this.highlightMeshes = [];
+        this.threatArrowMeshes = [];
+        this.timelineNodeMeshes = [];
+        this.shatterParticles = [];
+        this.shockwaves = [];
+        this.activeAnimations = [];
+        this.shatterCount = 0;
+
+        // Calibration state (Two-Palm surface anchor from Felix's live build video)
+        this.calibrating = false;
+        this.calibrationProgress = 0;
+
+        // Automated 45s Trailer Director state
+        this.trailerActive = false;
+        this.trailerStartTime = 0;
+        this.trailerStepIdx = 0;
+        this.mediaRecorder = null;
+        this.recordedChunks = [];
+
+        // Multiplayer BroadcastChannel (works across tabs/windows without external server failures)
+        this.roomCode = 'DESK-26';
+        this.bc = null;
+        this.setupMultiplayerChannel(this.roomCode);
+
+        this.initThree();
+        this.buildMaterials();
+        this.buildBoardAndTable();
+        this.buildSpatialEvalAndTimeline();
+        this.buildVirtualHandsAndCalibrationRings();
+        this.syncPiecesFromEngine();
+        this.bindEvents();
+        this.updateHUD();
+
+        this.clock = new THREE.Clock();
+        this.animate = this.animate.bind(this);
+        this.renderer.setAnimationLoop(this.animate);
+      }
+
+      setupMultiplayerChannel(code) {
+        this.roomCode = (code || 'DESK-26').toUpperCase();
+        try {
+          if (this.bc) this.bc.close();
+          if (typeof BroadcastChannel !== 'undefined') {
+            this.bc = new BroadcastChannel('desk_chess_xr_' + this.roomCode);
+            this.bc.onmessage = (ev) => {
+              if (ev.data && ev.data.type === 'MOVE') {
+                this.executeAnimatedMove(ev.data.move, false);
+                this.showToast(`🌐 Synced move from Room ${this.roomCode}`);
+              } else if (ev.data && ev.data.type === 'RESET') {
+                this.resetGame(false);
+              }
+            };
+          }
+        } catch (e) {
+          // Ignore BroadcastChannel restriction if any
+        }
+      }
+
+      initThree() {
+        this.scene = new THREE.Scene();
+
+        const w = this.container.clientWidth || window.innerWidth;
+        const h = this.container.clientHeight || window.innerHeight;
+        this.camera = new THREE.PerspectiveCamera(42, w / h, 0.1, 100);
+        this.cameraTargetPos = CAMERA_PRESETS[0].pos.clone();
+        this.cameraTargetLook = CAMERA_PRESETS[0].look.clone();
+        this.camera.position.copy(this.cameraTargetPos);
+        this.camera.lookAt(this.cameraTargetLook);
+
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+        this.renderer.setSize(w, h);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.15;
+        if (this.renderer.xr) this.renderer.xr.enabled = true;
+        this.container.appendChild(this.renderer.domElement);
+
+        // Warm studio + tabletop lighting matching Screenshot (795)-(800)
+        const ambient = new THREE.AmbientLight(0xffe6c2, 0.65);
+        this.scene.add(ambient);
+
+        this.mainSpot = new THREE.SpotLight(0xfff3db, 1.75);
+        this.mainSpot.position.set(4, 12, 6);
+        this.mainSpot.angle = Math.PI / 3;
+        this.mainSpot.penumbra = 0.65;
+        this.mainSpot.castShadow = true;
+        this.mainSpot.shadow.mapSize.width = 1024;
+        this.mainSpot.shadow.mapSize.height = 1024;
+        this.mainSpot.shadow.bias = -0.0005;
+        this.scene.add(this.mainSpot);
+
+        const rimLight1 = new THREE.DirectionalLight(0xffb36b, 0.75);
+        rimLight1.position.set(-7, 6, -6);
+        this.scene.add(rimLight1);
+
+        const rimLight2 = new THREE.PointLight(0x38bdf8, 0.45, 18);
+        rimLight2.position.set(-5.5, 3.5, 0);
+        this.scene.add(rimLight2);
+
+        this.boardRoot = new THREE.Group();
+        this.scene.add(this.boardRoot);
+
+        this.raycaster = new THREE.Raycaster();
+        this.pointerNDC = new THREE.Vector2(0, 0);
+      }
+
+      buildMaterials() {
+        const frameWoodTex = createWoodGrainTexture('#6f4924', '#39200b', false);
+        const darkSqTex = createWoodGrainTexture('#784f27', '#42260d', false);
+        const lightSqTex = createWoodGrainTexture('#d6ccb4', '#b4a688', true);
+        const coordTex = createCoordinateBorderTexture();
+
+        this.matWoodFrame = new THREE.MeshStandardMaterial({
+          map: frameWoodTex,
+          roughness: 0.42,
+          metalness: 0.08
+        });
+        this.matCoordBorder = new THREE.MeshStandardMaterial({
+          map: coordTex,
+          roughness: 0.38,
+          metalness: 0.05
+        });
+        this.matLightSquare = new THREE.MeshStandardMaterial({
+          map: lightSqTex,
+          roughness: 0.32,
+          metalness: 0.06
+        });
+        this.matDarkSquare = new THREE.MeshStandardMaterial({
+          map: darkSqTex,
+          roughness: 0.38,
+          metalness: 0.08
+        });
+
+        // White Pieces: Polished Champagne Gold / Metallic Brass-Ivory (matching Screenshot 795-800)
+        this.matWhitePiece = new THREE.MeshStandardMaterial({
+          color: 0xd9c696,
+          roughness: 0.20,
+          metalness: 0.68,
+          emissive: 0x1c1406,
+          emissiveIntensity: 0.25
+        });
+
+        // Black Pieces: Deep Glossy Crimson Red Lacquer (matching Screenshot 795-800)
+        this.matBlackPiece = new THREE.MeshStandardMaterial({
+          color: 0xa81313,
+          roughness: 0.24,
+          metalness: 0.35,
+          emissive: 0x260202,
+          emissiveIntensity: 0.3
+        });
+
+        this.matGazeHalo = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide
+        });
+
+        this.matLegalMove = new THREE.MeshBasicMaterial({
+          color: 0x10b981,
+          transparent: true,
+          opacity: 0.82,
+          side: THREE.DoubleSide
+        });
+
+        this.matCaptureMove = new THREE.MeshBasicMaterial({
+          color: 0xf43f5e,
+          transparent: true,
+          opacity: 0.88,
+          side: THREE.DoubleSide
+        });
+      }
+
+      buildBoardAndTable() {
+        // 1. Beveled Outer Wooden Frame (10.4 x 10.4 units)
+        const frameGeom = new THREE.BoxGeometry(10.5, 0.44, 10.5);
+        const frameMesh = new THREE.Mesh(frameGeom, this.matWoodFrame);
+        frameMesh.position.y = -0.24;
+        frameMesh.receiveShadow = true;
+        frameMesh.castShadow = true;
+        this.boardRoot.add(frameMesh);
+
+        // Bevel trim skirt around wooden board
+        const skirtGeom = new THREE.CylinderGeometry(7.42, 7.82, 0.44, 4);
+        skirtGeom.rotateY(Math.PI / 4);
+        const skirtMesh = new THREE.Mesh(skirtGeom, this.matWoodFrame);
+        skirtMesh.position.y = -0.25;
+        skirtMesh.receiveShadow = true;
+        this.boardRoot.add(skirtMesh);
+
+        // 2. Coordinate A-H / 1-8 Inner Border Plane (9.0 x 9.0 units)
+        const borderGeom = new THREE.BoxGeometry(9.05, 0.06, 9.05);
+        const borderMesh = new THREE.Mesh(borderGeom, this.matCoordBorder);
+        borderMesh.position.y = -0.025;
+        borderMesh.receiveShadow = true;
+        this.boardRoot.add(borderMesh);
+
+        // 3. 64 Individual Pickable Chess Squares (8.0 x 8.0 total)
+        this.squaresGroup = new THREE.Group();
+        this.boardRoot.add(this.squaresGroup);
+        this.squareMeshes = [];
+
+        const sqGeom = new THREE.BoxGeometry(SQ_SIZE * 0.992, 0.05, SQ_SIZE * 0.992);
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            const isLight = (r + c) % 2 === 0;
+            const sqMesh = new THREE.Mesh(sqGeom, isLight ? this.matLightSquare : this.matDarkSquare);
+            const pos = squareToWorld(r, c);
+            sqMesh.position.set(pos.x, -0.02, pos.z);
+            sqMesh.receiveShadow = true;
+            sqMesh.userData = { isSquare: true, r, c };
+            this.squaresGroup.add(sqMesh);
+            this.squareMeshes.push(sqMesh);
+          }
+        }
+
+        // 4. Gaze Reticle 3D Ring on Board Surface
+        const gazeRingGeom = new THREE.RingGeometry(0.32, 0.45, 32);
+        gazeRingGeom.rotateX(-Math.PI / 2);
+        this.gazeRing3D = new THREE.Mesh(gazeRingGeom, this.matGazeHalo);
+        this.gazeRing3D.position.y = 0.018;
+        this.gazeRing3D.visible = false;
+        this.boardRoot.add(this.gazeRing3D);
+
+        // 5. Simulated AR Passthrough Office Desk Environment (Toggled via AR Office Desk button)
+        this.arEnvironmentGroup = new THREE.Group();
+        this.arEnvironmentGroup.visible = false;
+        const deskSurface = new THREE.Mesh(
+          new THREE.BoxGeometry(22, 0.3, 14),
+          new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7, metalness: 0.1, transparent: true, opacity: 0.45 })
+        );
+        deskSurface.position.set(0, -0.62, 0);
+        deskSurface.receiveShadow = true;
+        this.arEnvironmentGroup.add(deskSurface);
+
+        // Passthrough spatial grid lines on desk
+        const gridHelper = new THREE.GridHelper(20, 20, 0x38bdf8, 0x1e3a8a);
+        gridHelper.position.y = -0.46;
+        this.arEnvironmentGroup.add(gridHelper);
+        this.scene.add(this.arEnvironmentGroup);
+
+        //Groups for highlights & pieces
+        this.highlightsGroup = new THREE.Group();
+        this.boardRoot.add(this.highlightsGroup);
+
+        this.piecesGroup = new THREE.Group();
+        this.boardRoot.add(this.piecesGroup);
+
+        this.fxGroup = new THREE.Group();
+        this.boardRoot.add(this.fxGroup);
+      }
+
+      // Floating 3D Spatial Evaluation Bar & Move-History Timeline Nodes in 3D space
+      buildSpatialEvalAndTimeline() {
+        this.spatialHudGroup = new THREE.Group();
+        this.boardRoot.add(this.spatialHudGroup);
+
+        // 1. Floating 3D Evaluation Pillar on the Left (-6.1, y, 0)
+        const pillarBg = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.18, 0.18, 4.4, 20),
+          new THREE.MeshStandardMaterial({ color: 0x7f1d1d, roughness: 0.3, metalness: 0.4 })
+        );
+        pillarBg.position.set(-6.0, 2.2, 0);
+        this.spatialHudGroup.add(pillarBg);
+
+        this.evalGoldCylinder = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.20, 0.20, 2.2, 20),
+          new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0x78350f, roughness: 0.2, metalness: 0.7 })
+        );
+        this.evalGoldCylinder.position.set(-6.0, 1.1, 0);
+        this.spatialHudGroup.add(this.evalGoldCylinder);
+
+        // Glowing floating base pedestal under Eval Pillar
+        const evalRing = new THREE.Mesh(
+          new THREE.RingGeometry(0.26, 0.38, 28),
+          new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide })
+        );
+        evalRing.rotation.x = -Math.PI / 2;
+        evalRing.position.set(-6.0, 0.02, 0);
+        this.spatialHudGroup.add(evalRing);
+
+        // 2. Floating 3D Spatial Move-History Ribbon on the Right (+6.1, y, z)
+        this.timeline3DGroup = new THREE.Group();
+        this.timeline3DGroup.position.set(6.0, 0.4, 3.2);
+        this.spatialHudGroup.add(this.timeline3DGroup);
+      }
+
+      update3DTimelineAndEval() {
+        // Update 3D Eval Bar Height
+        const cp = this.engine.evaluatePosition();
+        const clamped = Math.max(-800, Math.min(800, cp));
+        const whiteRatio = Math.max(0.08, Math.min(0.92, 0.5 + clamped / 1600));
+        const totalH = 4.4;
+        const goldH = totalH * whiteRatio;
+        this.evalGoldCylinder.scale.y = goldH / 2.2;
+        this.evalGoldCylinder.position.y = goldH / 2;
+
+        // Rebuild 3D Spatial Move Nodes along a rising helical arc on the right of the board
+        while (this.timeline3DGroup.children.length > 0) {
+          this.timeline3DGroup.remove(this.timeline3DGroup.children[0]);
+        }
+        this.timelineNodeMeshes = [];
+
+        const recent = this.engine.history.slice(-10);
+        const pts = [];
+        recent.forEach((item, idx) => {
+          const isWhite = item.piece[0] === 'w';
+          const isCapture = !!item.capturedPiece;
+          const nodeGeom = isCapture
+            ? new THREE.OctahedronGeometry(0.22, 0)
+            : new THREE.SphereGeometry(0.16, 16, 16);
+          const nodeMat = new THREE.MeshStandardMaterial({
+            color: isWhite ? 0xfbbf24 : 0xdc2626,
+            emissive: isCapture ? 0xf43f5e : (isWhite ? 0x451a03 : 0x450a0a),
+            roughness: 0.2,
+            metalness: 0.65
+          });
+          const nodeMesh = new THREE.Mesh(nodeGeom, nodeMat);
+          const zPos = -idx * 0.68;
+          const yPos = 0.25 + idx * 0.26;
+          const xPos = Math.sin(idx * 0.6) * 0.25;
+          nodeMesh.position.set(xPos, yPos, zPos);
+          nodeMesh.userData = { isTimelineNode: true, ply: item.ply, san: item.san };
+          this.timeline3DGroup.add(nodeMesh);
+          this.timelineNodeMeshes.push(nodeMesh);
+          pts.push(nodeMesh.position.clone());
+        });
+
+        if (pts.length >= 2) {
+          const curve = new THREE.CatmullRomCurve3(pts);
+          const tubeGeom = new THREE.TubeGeometry(curve, pts.length * 6, 0.03, 8, false);
+          const tubeMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.65 });
+          this.timeline3DGroup.add(new THREE.Mesh(tubeGeom, tubeMat));
+        }
+      }
+
+      // Build articulated 3D XR Hands + Two-Palm Surface Calibration Rings (Felix IWSDK Live Build style)
+      buildVirtualHandsAndCalibrationRings() {
+        this.handsGroup = new THREE.Group();
+        this.scene.add(this.handsGroup);
+
+        const handMat = new THREE.MeshStandardMaterial({
+          color: 0x38bdf8,
+          emissive: 0x0284c7,
+          emissiveIntensity: 0.35,
+          roughness: 0.3,
+          metalness: 0.2,
+          transparent: true,
+          opacity: 0.72
+        });
+
+        const createArticulatedHand = (isRight = true) => {
+          const hg = new THREE.Group();
+          const palm = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.12, 0.52), handMat);
+          hg.add(palm);
+          // Thumb + Index finger for visible pinch feedback
+          const thumb = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.34, 10), handMat);
+          thumb.position.set(isRight ? -0.24 : 0.24, 0, 0.18);
+          thumb.rotation.x = Math.PI / 2.4;
+          thumb.rotation.z = isRight ? -0.4 : 0.4;
+          hg.add(thumb);
+
+          const indexFinger = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.42, 10), handMat);
+          indexFinger.position.set(isRight ? -0.14 : 0.14, 0, 0.42);
+          indexFinger.rotation.x = Math.PI / 2;
+          hg.add(indexFinger);
+
+          // Middle, ring, pinky
+          [-0.03, 0.08, 0.18].forEach((offset, i) => {
+            const f = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.048, 0.38 - i * 0.04, 10), handMat);
+            f.position.set(isRight ? offset : -offset, 0, 0.40 - i * 0.02);
+            f.rotation.x = Math.PI / 2;
+            hg.add(f);
+          });
+
+          hg.userData = { thumb, indexFinger };
+          return hg;
+        };
+
+        this.leftHand3D = createArticulatedHand(false);
+        this.leftHand3D.position.set(-2.6, 1.4, 4.2);
+        this.handsGroup.add(this.leftHand3D);
+
+        this.rightHand3D = createArticulatedHand(true);
+        this.rightHand3D.position.set(2.4, 1.5, 4.0);
+        this.handsGroup.add(this.rightHand3D);
+
+        // Two-Palm Surface Calibration Rings (Expand and merge across the desk surface)
+        this.calibRingLeft = new THREE.Mesh(
+          new THREE.RingGeometry(0.35, 0.48, 40),
+          new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.0, side: THREE.DoubleSide })
+        );
+        this.calibRingLeft.rotation.x = -Math.PI / 2;
+        this.calibRingLeft.position.set(-1.6, 0.06, 1.2);
+        this.boardRoot.add(this.calibRingLeft);
+
+        this.calibRingRight = new THREE.Mesh(
+          new THREE.RingGeometry(0.35, 0.48, 40),
+          new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.0, side: THREE.DoubleSide })
+        );
+        this.calibRingRight.rotation.x = -Math.PI / 2;
+        this.calibRingRight.position.set(1.6, 0.06, 1.2);
+        this.boardRoot.add(this.calibRingRight);
+      }
+
+      syncPiecesFromEngine() {
+        // Clear old piece meshes
+        while (this.piecesGroup.children.length > 0) {
+          this.piecesGroup.remove(this.piecesGroup.children[0]);
+        }
+        this.pieceMeshes = {};
+
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 8; c++) {
+            const code = this.engine.board[r][c];
+            if (!code) continue;
+            const color = code[0];
+            const type = code[1];
+            const mat = color === 'w' ? this.matWhitePiece : this.matBlackPiece;
+            const mesh = buildStauntonPieceMesh(type, mat);
+            const pos = squareToWorld(r, c);
+            mesh.position.set(pos.x, 0, pos.z);
+            // Rotate knights to face opponent
+            if (type === 'N') {
+              mesh.rotation.y = color === 'w' ? Math.PI : 0;
+            }
+            mesh.userData = { isPiece: true, r, c, code };
+            this.piecesGroup.add(mesh);
+            this.pieceMeshes[`${r},${c}`] = mesh;
+          }
+        }
+        this.renderHighlights();
+        this.update3DTimelineAndEval();
+      }
+
+      renderHighlights() {
+        while (this.highlightsGroup.children.length > 0) {
+          this.highlightsGroup.remove(this.highlightsGroup.children[0]);
+        }
+        this.highlightMeshes = [];
+
+        // Selected square golden glow pad
+        if (this.selectedSquare) {
+          const pos = squareToWorld(this.selectedSquare.r, this.selectedSquare.c);
+          const pad = new THREE.Mesh(
+            new THREE.PlaneGeometry(SQ_SIZE * 0.92, SQ_SIZE * 0.92),
+            new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+          );
+          pad.rotation.x = -Math.PI / 2;
+          pad.position.set(pos.x, 0.015, pos.z);
+          this.highlightsGroup.add(pad);
+        }
+
+        // Legal target move rings (emerald for empty square, pulsing crimson ring for capture!)
+        for (const m of this.legalMoves) {
+          const pos = squareToWorld(m.toR, m.toC);
+          const isCap = !!m.capture;
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(isCap ? 0.33 : 0.16, isCap ? 0.45 : 0.28, 28),
+            isCap ? this.matCaptureMove : this.matLegalMove
+          );
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.set(pos.x, 0.02, pos.z);
+          this.highlightsGroup.add(ring);
+        }
+
+        // Last move highlight
+        if (this.engine.history.length > 0) {
+          const last = this.engine.history[this.engine.history.length - 1];
+          for (const [rr, cc] of [[last.fromR, last.fromC], [last.toR, last.toC]]) {
+            const pos = squareToWorld(rr, cc);
+            const hPad = new THREE.Mesh(
+              new THREE.PlaneGeometry(SQ_SIZE * 0.9, SQ_SIZE * 0.9),
+              new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.24, side: THREE.DoubleSide })
+            );
+            hPad.rotation.x = -Math.PI / 2;
+            hPad.position.set(pos.x, 0.012, pos.z);
+            this.highlightsGroup.add(hPad);
+          }
+        }
+      }
+
+      // =======================================================================
+      // 5. BATTLE & SHATTER EXPLOSION ANIMATION ON CAPTURE
+      // =======================================================================
+      triggerShatterExplosion(worldPos, capturedColor = 'b') {
+        soundFX.playShatterExplosion();
+        this.shatterCount++;
+        const isGold = capturedColor === 'w';
+        const shardMat = new THREE.MeshStandardMaterial({
+          color: isGold ? 0xfbbf24 : 0xdc2626,
+          emissive: isGold ? 0xb45309 : 0x7f1d1d,
+          roughness: 0.15,
+          metalness: 0.75
+        });
+
+        // 36 flying physics-driven tetrahedral crystal/lacquer shards
+        for (let i = 0; i < 36; i++) {
+          const size = 0.07 + Math.random() * 0.11;
+          const geom = new THREE.TetrahedronGeometry(size, 0);
+          const shard = new THREE.Mesh(geom, shardMat);
+          shard.position.set(
+            worldPos.x + (Math.random() - 0.5) * 0.3,
+            0.25 + Math.random() * 0.7,
+            worldPos.z + (Math.random() - 0.5) * 0.3
+          );
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 1.6 + Math.random() * 3.8;
+          shard.userData = {
+            vx: Math.cos(angle) * speed,
+            vy: 2.2 + Math.random() * 3.6,
+            vz: Math.sin(angle) * speed,
+            rx: (Math.random() - 0.5) * 14,
+            ry: (Math.random() - 0.5) * 14,
+            life: 1.0
+          };
+          shard.castShadow = true;
+          this.fxGroup.add(shard);
+          this.shatterParticles.push(shard);
+        }
+
+        // Expanding glowing battle shockwave ring
+        const waveRing = new THREE.Mesh(
+          new THREE.RingGeometry(0.15, 0.32, 36),
+          new THREE.MeshBasicMaterial({
+            color: isGold ? 0xfde047 : 0xf43f5e,
+            transparent: true,
+            opacity: 0.95,
+            side: THREE.DoubleSide
+          })
+        );
+        waveRing.rotation.x = -Math.PI / 2;
+        waveRing.position.set(worldPos.x, 0.04, worldPos.z);
+        waveRing.userData = { scale: 1.0, opacity: 0.95 };
+        this.fxGroup.add(waveRing);
+        this.shockwaves.push(waveRing);
+      }
+
+      // Execute a move with smooth 3D parabolic jump arc + shatter capture physics
+      executeAnimatedMove(move, broadcast = true) {
+        const movingMesh = this.pieceMeshes[`${move.fromR},${move.fromC}`];
+        const targetPos = squareToWorld(move.toR, move.toC);
+        const startPos = squareToWorld(move.fromR, move.fromC);
+        const isCapture = !!this.engine.board[move.toR][move.toC] || move.enPassant;
+        const capturedCode = move.enPassant
+          ? this.engine.board[move.fromR][move.toC]
+          : this.engine.board[move.toR][move.toC];
+
+        const record = this.engine.makeMove(move);
+        if (!record) return;
+
+        if (broadcast && this.bc) {
+          try { this.bc.postMessage({ type: 'MOVE', move }); } catch (e) {}
+        }
+
+        this.selectedSquare = null;
+        this.legalMoves = [];
+
+        if (movingMesh) {
+          const duration = isCapture ? 0.38 : 0.26;
+          this.activeAnimations.push({
+            mesh: movingMesh,
+            startPos,
+            targetPos,
+            elapsed: 0,
+            duration,
+            isCapture,
+            capturedColor: capturedCode ? capturedCode[0] : 'b',
+            onComplete: () => {
+              if (isCapture) {
+                this.triggerShatterExplosion(targetPos, capturedCode ? capturedCode[0] : 'b');
+              } else {
+                soundFX.playMoveClack(false);
+              }
+              this.syncPiecesFromEngine();
+              this.updateHUD();
+              this.checkAITurn();
+            }
+          });
+        } else {
+          this.syncPiecesFromEngine();
+          this.updateHUD();
+          this.checkAITurn();
+        }
+      }
+
+      checkAITurn() {
+        if (this.engine.gameOver || this.trailerActive || this.editMode) return;
+        const shouldAIMove =
+          (this.matchMode === 'ai' && this.engine.turn === 'b') ||
+          (this.matchMode === 'spectate');
+
+        if (shouldAIMove) {
+          clearTimeout(this.aiTimer);
+          this.aiTimer = setTimeout(() => {
+            if (this.engine.gameOver || this.trailerActive) return;
+            const aiMove = this.engine.chooseBestMove(this.aiDepth);
+            if (aiMove) {
+              this.executeAnimatedMove(aiMove, true);
+            }
+          }, 420);
+        }
+      }
+
+      // =======================================================================
+      // 6. TWO-PALM DESK SURFACE CALIBRATION (FELIX IWSDK LIVE BUILD GESTURE)
+      // =======================================================================
+      startTwoPalmCalibration() {
+        this.calibrating = true;
+        this.calibrationProgress = 0;
+        this.calibRingLeft.material.opacity = 0.9;
+        this.calibRingRight.material.opacity = 0.9;
+        this.calibRingLeft.scale.set(1, 1, 1);
+        this.calibRingRight.scale.set(1, 1, 1);
+        soundFX.playCalibrationPulse(0.2);
+        this.showToast('🖐️🖐️ Holding Both Palms Flat — Calibrating Desk Surface Anchor...');
+      }
+
+      // =======================================================================
+      // 7. AUTOMATED 45s CAMERA-BOBBING TRAILER DIRECTOR & VIDEO RECORDER
+      // =======================================================================
+      toggleTrailerDirector() {
+        if (this.trailerActive) {
+          this.stopTrailerDirector();
+        } else {
+          this.startTrailerDirector();
+        }
+      }
+
+      startTrailerDirector() {
+        this.resetGame(false);
+        this.trailerActive = true;
+        this.trailerStartTime = performance.now();
+        this.trailerStepIdx = 0;
+        document.getElementById('trailer-btn-label').textContent = '⏹ Stop Trailer';
+        this.showToast('🎬 45s IWSDK Emulator Trailer Started (Human Camera Bobbing + Gaze & Hands)');
+
+        // Start MediaRecorder on canvas stream so user gets a real WebM video file if supported
+        try {
+          const stream = this.renderer.domElement.captureStream(30);
+          this.recordedChunks = [];
+          this.mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+          this.mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) this.recordedChunks.push(e.data);
+          };
+          this.mediaRecorder.onstop = () => {
+            if (this.recordedChunks.length > 0) {
+              const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'desk-chess-xr-trailer.webm';
+              a.click();
+              this.showToast('🎥 Downloaded recorded gameplay video: desk-chess-xr-trailer.webm');
+            }
+          };
+          this.mediaRecorder.start();
+        } catch (err) {
+          // Fallback silently if MediaRecorder isn't supported in the host browser
+        }
+
+        // Choreographed tactical showcase game with explosive captures & checkmate
+        this.trailerTimeline = [
+          { t: 0.6, action: () => this.startTwoPalmCalibration() },
+          { t: 4.5, action: () => this.trailerPlayAlg('e2', 'e4', '👁️ Gaze + Remote Pinch: e2 → e4') },
+          { t: 7.5, action: () => this.trailerPlayAlg('e7', 'e5', '🤖 Spatial AI Response: e7 → e5') },
+          { t: 10.5, action: () => this.trailerPlayAlg('g1', 'f3', '✋ Direct Hand Grasp: Knight g1 → f3') },
+          { t: 13.5, action: () => this.trailerPlayAlg('b8', 'c6', '🤖 Spatial AI Response: b8 → c6') },
+          { t: 16.5, action: () => this.trailerPlayAlg('f1', 'c4', '👁️ Gaze + Pinch Bishop: f1 → c4') },
+          { t: 19.5, action: () => this.trailerPlayAlg('d7', 'd6', '🤖 Spatial AI Response: d7 → d6') },
+          { t: 22.5, action: () => this.trailerPlayAlg('b1', 'c3', '✋ Direct Hand Grasp: b1 → c3') },
+          { t: 25.5, action: () => this.trailerPlayAlg('c8', 'g4', '🤖 AI Pins Knight: c8 → g4') },
+          { t: 28.5, action: () => this.trailerPlayAlg('h2', 'h3', '👁️ Gaze + Pinch: h2 → h3') },
+          { t: 31.5, action: () => this.trailerPlayAlg('g4', 'h5', '🤖 AI Retreats Bishop: g4 → h5') },
+          { t: 34.5, action: () => this.trailerPlayAlg('f3', 'e5', '💥 SHATTER CAPTURE! Knight Sacrifices on e5 (Nxe5!)') },
+          { t: 38.0, action: () => this.trailerPlayAlg('h5', 'd1', '💥 SHATTER CAPTURE! AI Captures Queen (Bxd1!)') },
+          { t: 41.2, action: () => this.trailerPlayAlg('c4', 'f7', '💥 SHATTER CHECK! Bishop Strikes f7+ (Bxf7+)') },
+          { t: 43.8, action: () => this.trailerPlayAlg('e8', 'e7', '🤖 King Forced Forward: Ke7') },
+          { t: 46.0, action: () => this.trailerPlayAlg('c3', 'd5', '🏆 LEGAL\'S MATE CHECKMATE! Nd5#') },
+          { t: 48.5, action: () => this.stopTrailerDirector() }
+        ];
+      }
+
+      trailerPlayAlg(fromAlg, toAlg, caption) {
+        const f = this.engine.algToCoord(fromAlg);
+        const t = this.engine.algToCoord(toAlg);
+        const legal = this.engine.getLegalMovesForSquare(f.r, f.c);
+        const match = legal.find(m => m.toR === t.r && m.toC === t.c) || { fromR: f.r, fromC: f.c, toR: t.r, toC: t.c };
+        // Move virtual hand to piece
+        const wPos = squareToWorld(t.r, t.c);
+        this.rightHand3D.position.set(wPos.x + 0.3, 0.9, wPos.z + 0.5);
+        this.showToast(caption);
+        this.executeAnimatedMove(match, false);
+      }
+
+      stopTrailerDirector() {
+        this.trailerActive = false;
+        document.getElementById('trailer-btn-label').textContent = '45s Trailer';
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+          try { this.mediaRecorder.stop(); } catch (e) {}
+        }
+      }
+
+      // =======================================================================
+      // 8. POINTER, GAZE + PINCH, KEYBOARD & UI EVENT BINDINGS
+      // =======================================================================
+      bindEvents() {
+        const dom = this.renderer.domElement;
+
+        window.addEventListener('resize', () => {
+          const w = this.container.clientWidth || window.innerWidth;
+          const h = this.container.clientHeight || window.innerHeight;
+          this.camera.aspect = w / h;
+          this.camera.updateProjectionMatrix();
+          this.renderer.setSize(w, h);
+        });
+
+        dom.addEventListener('pointermove', (e) => {
+          const rect = dom.getBoundingClientRect();
+          this.pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          this.pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+          // Update Gaze Reticle HUD element
+          const reticle = document.getElementById('gaze-reticle');
+          if (this.interactionMode !== 'direct') {
+            reticle.style.display = 'block';
+            reticle.style.left = `${e.clientX}px`;
+            reticle.style.top = `${e.clientY}px`;
+          } else {
+            reticle.style.display = 'none';
+          }
+
+          this.updateGazeAndHandHover();
+        });
+
+        dom.addEventListener('pointerdown', (e) => {
+          soundFX.init();
+          const rect = dom.getBoundingClientRect();
+          this.pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          this.pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+          this.isPinching = true;
+          document.getElementById('gaze-reticle').classList.add('pinching');
+          document.getElementById('hand-state-readout').textContent = 'Pinch Grab (Active)';
+          this.handleBoardPinchAction();
+        });
+
+        window.addEventListener('pointerup', () => {
+          this.isPinching = false;
+          document.getElementById('gaze-reticle').classList.remove('pinching');
+          document.getElementById('hand-state-readout').textContent = 'Open Palm (Ready)';
+        });
+
+        // Top-Left Reference Circular Buttons: MENU, RESET, EDIT
+        document.getElementById('btn-menu').addEventListener('click', () => {
+          document.getElementById('menu-modal').classList.remove('hidden');
+        });
+        document.getElementById('btn-close-menu').addEventListener('click', () => {
+          document.getElementById('menu-modal').classList.add('hidden');
+        });
+        document.getElementById('btn-resume-modal').addEventListener('click', () => {
+          document.getElementById('menu-modal').classList.add('hidden');
+        });
+        document.getElementById('btn-new-game-modal').addEventListener('click', () => {
+          document.getElementById('menu-modal').classList.add('hidden');
+          this.resetGame(true);
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+          this.resetGame(true);
+        });
+
+        document.getElementById('btn-edit').addEventListener('click', (e) => {
+          this.editMode = !this.editMode;
+          e.currentTarget.classList.toggle('active-pill', this.editMode);
+          document.getElementById('edit-palette').classList.toggle('hidden', !this.editMode);
+          this.showToast(this.editMode ? '🛠️ Board Editor Active: Tap any square to place/clear pieces' : '♟️ Resumed Standard Match Rules');
+          this.updateHUD();
+        });
+
+        document.querySelectorAll('.edit-tool-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this.selectedEditTool = btn.getAttribute('data-edit-piece');
+            this.showToast(`Selected Editor Piece: ${this.selectedEditTool}`);
+          });
+        });
+
+        // Two-Palm Surface Calibration Button
+        document.getElementById('btn-calibrate').addEventListener('click', () => {
+          this.startTwoPalmCalibration();
+        });
+
+        // Cycle Interaction Mode (Gaze + Pinch, Direct Hand Grab, Both)
+        document.getElementById('btn-interaction-mode').addEventListener('click', (e) => {
+          const order = ['both', 'gaze', 'direct'];
+          const labels = {
+            both: '👁️+🤏 Gaze & Hand Grab',
+            gaze: '👁️ Eye Gaze + Remote Pinch',
+            direct: '✋ Direct Hand Grasp Only'
+          };
+          this.interactionMode = order[(order.indexOf(this.interactionMode) + 1) % order.length];
+          e.currentTarget.textContent = labels[this.interactionMode];
+          this.showToast(`Interaction Mode: ${labels[this.interactionMode]}`);
+        });
+
+        // Cycle Reference Camera Perspectives
+        document.getElementById('btn-camera-angle').addEventListener('click', (e) => {
+          this.camPresetIdx = (this.camPresetIdx + 1) % CAMERA_PRESETS.length;
+          const preset = CAMERA_PRESETS[this.camPresetIdx];
+          this.cameraTargetPos.copy(preset.pos);
+          this.cameraTargetLook.copy(preset.look);
+          e.currentTarget.textContent = `🎥 View: ${preset.name}`;
+        });
+
+        // Camera presets inside Menu Modal
+        document.querySelectorAll('.cam-preset-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const idx = parseInt(btn.getAttribute('data-cam'), 10);
+            this.camPresetIdx = idx;
+            const preset = CAMERA_PRESETS[idx];
+            this.cameraTargetPos.copy(preset.pos);
+            this.cameraTargetLook.copy(preset.look);
+            document.getElementById('btn-camera-angle').textContent = `🎥 View: ${preset.name}`;
+            document.getElementById('menu-modal').classList.add('hidden');
+          });
+        });
+
+        // Toggle AR Passthrough vs Classic Amber Wood Study
+        document.getElementById('btn-passthrough').addEventListener('click', (e) => {
+          this.passthroughMode = !this.passthroughMode;
+          document.body.classList.toggle('passthrough-active', this.passthroughMode);
+          this.arEnvironmentGroup.visible = this.passthroughMode;
+          e.currentTarget.textContent = this.passthroughMode ? '🪵 Classic Study Mode' : '🥽 AR Office Desk';
+          this.showToast(this.passthroughMode ? '🥽 AR Passthrough Office Desk Enabled' : '🪵 Classic Warm Mahogany Study Enabled');
+        });
+
+        // 45s Trailer Director Button
+        document.getElementById('btn-trailer').addEventListener('click', () => {
+          this.toggleTrailerDirector();
+        });
+
+        // Native WebXR Session Launch (Meta Quest / Meta VR Glasses) with Emulated Fallback
+        document.getElementById('btn-enter-xr').addEventListener('click', async () => {
+          if (navigator.xr) {
+            try {
+              const arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+              const vrSupported = !arSupported && await navigator.xr.isSessionSupported('immersive-vr');
+              if (arSupported || vrSupported) {
+                const mode = arSupported ? 'immersive-ar' : 'immersive-vr';
+                const session = await navigator.xr.requestSession(mode, {
+                  optionalFeatures: ['hand-tracking', 'local-floor', 'bounded-floor', 'hit-test']
+                });
+                await this.renderer.xr.setSession(session);
+                document.getElementById('xr-mode-badge').textContent = `Live WebXR (${mode})`;
+                return;
+              }
+            } catch (err) {
+              // Fall back to IWSDK Emulated XR mode
+            }
+          }
+          // Activate Emulated Passthrough + Two-Palm Calibration immediately
+          if (!this.passthroughMode) {
+            document.getElementById('btn-passthrough').click();
+          }
+          this.startTwoPalmCalibration();
+          document.getElementById('xr-mode-badge').textContent = 'IWSDK Emulated XR Active';
+        });
+
+        // Sound Toggle
+        document.getElementById('btn-sound').addEventListener('click', (e) => {
+          soundFX.enabled = !soundFX.enabled;
+          e.currentTarget.textContent = soundFX.enabled ? '🔊' : '🔇';
+          this.showToast(soundFX.enabled ? '🔊 Spatial Audio Enabled' : '🔇 Audio Muted');
+        });
+
+        // Left & Right HUD Controls
+        document.getElementById('btn-ai-hint').addEventListener('click', () => {
+          this.showGazeTacticalHint();
+        });
+        document.getElementById('btn-test-shatter').addEventListener('click', () => {
+          const sq = this.hoveredSquare || { r: 3, c: 4 };
+          this.triggerShatterExplosion(squareToWorld(sq.r, sq.c), this.engine.turn === 'w' ? 'b' : 'w');
+          this.updateHUD();
+        });
+        document.getElementById('btn-undo').addEventListener('click', () => {
+          if (this.engine.undo()) {
+            if (this.matchMode === 'ai' && this.engine.turn === 'b') this.engine.undo();
+            this.selectedSquare = null;
+            this.legalMoves = [];
+            this.syncPiecesFromEngine();
+            this.updateHUD();
+          }
+        });
+        document.getElementById('btn-flip').addEventListener('click', () => {
+          this.flipped = !this.flipped;
+          this.cameraTargetPos.z *= -1;
+          this.cameraTargetPos.x *= -1;
+        });
+        document.getElementById('btn-ai-move').addEventListener('click', () => {
+          if (this.engine.gameOver) return;
+          const m = this.engine.chooseBestMove(this.aiDepth);
+          if (m) this.executeAnimatedMove(m, true);
+        });
+
+        // Modal Mode & Difficulty Selectors
+        document.querySelectorAll('.mode-select-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this.matchMode = btn.getAttribute('data-mode');
+            document.querySelectorAll('.mode-select-btn').forEach(b => {
+              b.className = 'mode-select-btn py-2.5 px-3 rounded-xl bg-stone-800/80 border border-white/10 text-stone-200 font-semibold text-xs';
+            });
+            btn.className = 'mode-select-btn py-2.5 px-3 rounded-xl bg-amber-500/25 border border-amber-400 text-amber-100 font-semibold text-xs';
+            this.checkAITurn();
+          });
+        });
+
+        document.querySelectorAll('.diff-select-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this.aiDepth = parseInt(btn.getAttribute('data-diff'), 10);
+            document.querySelectorAll('.diff-select-btn').forEach(b => {
+              b.className = 'diff-select-btn py-2 px-3 rounded-xl bg-stone-800/80 border border-white/10 text-stone-200 text-xs font-semibold';
+            });
+            btn.className = 'diff-select-btn py-2 px-3 rounded-xl bg-amber-500/25 border border-amber-400 text-amber-100 text-xs font-semibold';
+          });
+        });
+
+        document.getElementById('btn-join-room').addEventListener('click', () => {
+          const code = document.getElementById('room-code-input').value.trim() || 'DESK-26';
+          this.setupMultiplayerChannel(code);
+          document.getElementById('mp-status-pill').textContent = `Room: ${this.roomCode}`;
+          this.showToast(`🌐 Connected to Multiplayer Table Room: ${this.roomCode}`);
+        });
+
+        document.getElementById('btn-copy-fen').addEventListener('click', () => {
+          const fen = this.engine.toFEN();
+          try {
+            navigator.clipboard.writeText(fen);
+          } catch (e) {
+            const ta = document.createElement('textarea');
+            ta.value = fen;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+          this.showToast(`Copied FEN: ${fen}`);
+        });
+      }
+
+      updateGazeAndHandHover() {
+        this.raycaster.setFromCamera(this.pointerNDC, this.camera);
+        const hits = this.raycaster.intersectObjects(this.squareMeshes, false);
+
+        if (hits.length > 0) {
+          const sq = hits[0].object.userData;
+          this.hoveredSquare = { r: sq.r, c: sq.c };
+          const wPos = squareToWorld(sq.r, sq.c);
+          this.gazeRing3D.visible = true;
+          this.gazeRing3D.position.set(wPos.x, 0.022, wPos.z);
+
+          // Move virtual right hand smoothly toward hovered square to demonstrate hand tracking
+          if (!this.trailerActive) {
+            this.rightHand3D.position.lerp(new THREE.Vector3(wPos.x + 0.45, 1.15, wPos.z + 0.85), 0.22);
+          }
+
+          const alg = this.engine.coordToAlg(sq.r, sq.c);
+          const p = this.engine.board[sq.r][sq.c];
+          const pName = p ? `${p[0] === 'w' ? 'Gold' : 'Crimson'} ${p[1]}` : 'Empty';
+          document.getElementById('gaze-target-readout').textContent = `${alg} (${pName})`;
+        } else {
+          this.hoveredSquare = null;
+          this.gazeRing3D.visible = false;
+        }
+      }
+
+      handleBoardPinchAction() {
+        if (this.trailerActive) return;
+
+        // First check if user clicked a 3D Spatial Timeline Node
+        this.raycaster.setFromCamera(this.pointerNDC, this.camera);
+        const nodeHits = this.raycaster.intersectObjects(this.timelineNodeMeshes, false);
+        if (nodeHits.length > 0) {
+          const data = nodeHits[0].object.userData;
+          this.showToast(`🕰️ 3D Timeline Node — Ply #${data.ply}: ${data.san}`);
+          return;
+        }
+
+        if (!this.hoveredSquare) return;
+        const { r, c } = this.hoveredSquare;
+
+        // Board Editor Mode
+        if (this.editMode) {
+          if (this.selectedEditTool === 'clear') {
+            this.engine.board[r][c] = null;
+          } else {
+            this.engine.board[r][c] = this.selectedEditTool;
+          }
+          soundFX.playMoveClack(false);
+          this.syncPiecesFromEngine();
+          this.updateHUD();
+          return;
+        }
+
+        if (this.engine.gameOver) return;
+
+        // Check if hoveredSquare is a legal destination for currently selected piece
+        const legalDest = this.legalMoves.find(m => m.toR === r && m.toC === c);
+        if (this.selectedSquare && legalDest) {
+          this.executeAnimatedMove(legalDest, true);
+          return;
+        }
+
+        // Otherwise select friendly piece on square
+        const clickedPiece = this.engine.board[r][c];
+        if (clickedPiece && clickedPiece[0] === this.engine.turn) {
+          this.selectedSquare = { r, c };
+          this.legalMoves = this.engine.getLegalMovesForSquare(r, c);
+          soundFX.playMoveClack(false);
+          this.renderHighlights();
+          const alg = this.engine.coordToAlg(r, c);
+          document.getElementById('coach-tip').textContent =
+            `Selected ${alg} (${this.legalMoves.length} legal targets). Gaze at a green/crimson ring and pinch to place.`;
+        } else {
+          this.selectedSquare = null;
+          this.legalMoves = [];
+          this.renderHighlights();
+        }
+      }
+
+      showGazeTacticalHint() {
+        if (this.engine.gameOver) return;
+        const best = this.engine.chooseBestMove(2);
+        if (!best) return;
+        this.selectedSquare = { r: best.fromR, c: best.fromC };
+        this.legalMoves = [best];
+        this.renderHighlights();
+        const fromAlg = this.engine.coordToAlg(best.fromR, best.fromC);
+        const toAlg = this.engine.coordToAlg(best.toR, best.toC);
+        const msg = `⚡ AI Gaze Coach recommends: ${fromAlg} → ${toAlg}${best.capture ? ' (Shatter Capture!)' : ''}`;
+        document.getElementById('coach-tip').textContent = msg;
+        this.showToast(msg);
+      }
+
+      resetGame(broadcast = true) {
+        this.engine.reset();
+        this.selectedSquare = null;
+        this.legalMoves = [];
+        this.syncPiecesFromEngine();
+        this.updateHUD();
+        if (broadcast && this.bc) {
+          try { this.bc.postMessage({ type: 'RESET' }); } catch (e) {}
+        }
+        this.showToast('♟️ Board Reset to Starting Staunton Position');
+      }
+
+      updateHUD() {
+        // 1. Update Exact Reference Bottom Status Text
+        const statusEl = document.getElementById('bottom-status-text');
+        if (this.engine.gameOver) {
+          statusEl.textContent = `Game Over — ${this.engine.winner} wins! (Tap RESET or MENU to play again)`;
+        } else if (this.editMode) {
+          statusEl.textContent = `Board Edit Mode Active (select a piece below and tap squares on the chess board)`;
+        } else {
+          const turnName = this.engine.turn === 'w' ? "White's" : "Black's";
+          const checkTag = this.engine.inCheck ? ' — CHECK!' : '';
+          statusEl.textContent = `It's ${turnName} turn to move${checkTag} (tap/gaze-pinch piece to move and then its destination on the chess board)`;
+        }
+
+        // 2. Evaluation score & bar
+        const cp = this.engine.evaluatePosition();
+        const pawns = (cp / 100).toFixed(1);
+        const sign = cp >= 0 ? '+' : '';
+        document.getElementById('eval-score-badge').textContent = `${sign}${pawns}`;
+        const pct = Math.max(6, Math.min(94, 50 + (cp / 1400) * 50));
+        document.getElementById('eval-bar-fill').style.width = `${pct}%`;
+
+        const absP = Math.abs(cp / 100);
+        document.getElementById('material-balance-text').textContent =
+          absP < 0.4 ? 'Balanced Position' : (cp > 0 ? 'Gold Advantage' : 'Crimson Advantage');
+
+        // 3. Captured Pieces & Shatter count
+        document.getElementById('shatter-count-badge').textContent = `${this.shatterCount} shattered`;
+        document.getElementById('captured-white').textContent =
+          this.engine.capturedBlack.map(p => UNICODE_PIECES[p] || '').join(' ');
+        document.getElementById('captured-black').textContent =
+          this.engine.capturedWhite.map(p => UNICODE_PIECES[p] || '').join(' ');
+
+        // 4. Move History List
+        document.getElementById('move-count-badge').textContent = `Ply ${this.engine.history.length}`;
+        const listEl = document.getElementById('move-history-list');
+        if (this.engine.history.length === 0) {
+          listEl.innerHTML = `<div class="text-stone-400 italic text-[11px]">No moves yet — pinch a piece or run 45s Trailer.</div>`;
+        } else {
+          let html = '';
+          for (let i = 0; i < this.engine.history.length; i += 2) {
+            const mNum = Math.floor(i / 2) + 1;
+            const wMove = this.engine.history[i];
+            const bMove = this.engine.history[i + 1];
+            const wCap = wMove.capturedPiece ? 'text-amber-300 font-bold' : 'text-stone-200';
+            const bCap = bMove && bMove.capturedPiece ? 'text-red-400 font-bold' : 'text-stone-300';
+            html += `<div class="flex items-center justify-between py-0.5 px-1.5 rounded bg-white/5">
+              <span class="text-stone-500 w-7">${mNum}.</span>
+              <span class="flex-1 ${wCap}">${wMove.san}</span>
+              <span class="flex-1 ${bCap}">${bMove ? bMove.san : ''}</span>
+            </div>`;
+          }
+          listEl.innerHTML = html;
+          listEl.scrollTop = listEl.scrollHeight;
+        }
+      }
+
+      showToast(msg) {
+        const el = document.getElementById('toast-banner');
+        el.textContent = msg;
+        el.classList.remove('hidden');
+        clearTimeout(this.toastTimer);
+        this.toastTimer = setTimeout(() => {
+          el.classList.add('hidden');
+        }, 3200);
+      }
+
+      // =======================================================================
+      // 9. MAIN FRAME LOOP (ANIMATIONS, SHATTER PHYSICS, CALIBRATION, TRAILER)
+      // =======================================================================
+      animate() {
+        const dt = Math.min(this.clock.getDelta(), 0.1);
+        const elapsed = this.clock.getElapsedTime();
+
+        // 1. Piece Jump / Strike Animations
+        for (let i = this.activeAnimations.length - 1; i >= 0; i--) {
+          const anim = this.activeAnimations[i];
+          anim.elapsed += dt;
+          const t = Math.min(1, anim.elapsed / anim.duration);
+          const smooth = t * t * (3 - 2 * t);
+          anim.mesh.position.lerpVectors(anim.startPos, anim.targetPos, smooth);
+          // High parabolic arc on capture strike
+          const arcHeight = anim.isCapture ? 1.55 : 0.75;
+          anim.mesh.position.y = Math.sin(t * Math.PI) * arcHeight;
+          if (anim.isCapture) {
+            anim.mesh.rotation.x = Math.sin(t * Math.PI) * 0.45;
+          }
+          if (t >= 1) {
+            anim.mesh.rotation.x = 0;
+            this.activeAnimations.splice(i, 1);
+            anim.onComplete();
+          }
+        }
+
+        // 2. Levitate selected piece gently when Gaze/Hand selected
+        if (this.selectedSquare && this.activeAnimations.length === 0) {
+          const key = `${this.selectedSquare.r},${this.selectedSquare.c}`;
+          const m = this.pieceMeshes[key];
+          if (m) {
+            m.position.y = 0.28 + Math.sin(elapsed * 5) * 0.07;
+          }
+        }
+
+        // 3. Shatter Shards Physics Simulation
+        for (let i = this.shatterParticles.length - 1; i >= 0; i--) {
+          const s = this.shatterParticles[i];
+          const u = s.userData;
+          u.vy -= 9.8 * dt; // Gravity
+          s.position.x += u.vx * dt;
+          s.position.y += u.vy * dt;
+          s.position.z += u.vz * dt;
+          s.rotation.x += u.rx * dt;
+          s.rotation.y += u.ry * dt;
+
+          // Bounce off wooden board surface
+          if (s.position.y < 0.05 && u.vy < 0) {
+            s.position.y = 0.05;
+            u.vy *= -0.45;
+            u.vx *= 0.72;
+            u.vz *= 0.72;
+          }
+          u.life -= dt * 0.75;
+          s.scale.setScalar(Math.max(0.01, u.life));
+          if (u.life <= 0) {
+            this.fxGroup.remove(s);
+            this.shatterParticles.splice(i, 1);
+          }
+        }
+
+        // 4. Shockwave Ring Expansion
+        for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+          const w = this.shockwaves[i];
+          w.userData.scale += dt * 7.5;
+          w.userData.opacity -= dt * 1.8;
+          w.scale.setScalar(w.userData.scale);
+          w.material.opacity = Math.max(0, w.userData.opacity);
+          if (w.userData.opacity <= 0) {
+            this.fxGroup.remove(w);
+            this.shockwaves.splice(i, 1);
+          }
+        }
+
+        // 5. Two-Palm Desk Surface Calibration Ring Animation (Merging rings)
+        if (this.calibrating) {
+          this.calibrationProgress += dt * 0.35;
+          const p = Math.min(1, this.calibrationProgress);
+          // Move palms flat over the board
+          this.leftHand3D.position.set(-1.6 * (1 - p * 0.4), 0.35, 1.2);
+          this.rightHand3D.position.set(1.6 * (1 - p * 0.4), 0.35, 1.2);
+
+          const ringScale = 1 + p * 4.2;
+          this.calibRingLeft.scale.setScalar(ringScale);
+          this.calibRingRight.scale.setScalar(ringScale);
+          this.calibRingLeft.position.x = -1.6 * (1 - p);
+          this.calibRingRight.position.x = 1.6 * (1 - p);
+          this.calibRingLeft.material.opacity = (1 - p) * 0.9;
+          this.calibRingRight.material.opacity = (1 - p) * 0.9;
+
+          if (p >= 1) {
+            this.calibrating = false;
+            this.calibRingLeft.material.opacity = 0;
+            this.calibRingRight.material.opacity = 0;
+            soundFX.playCalibrationPulse(1.0);
+            this.showToast('✅ Desk Surface Calibrated! Shadow-Casting 3D Board Anchored.');
+          }
+        }
+
+        // 6. Pinch Finger Animation on 3D Virtual Hands
+        const pinchAngle = this.isPinching ? 0.32 : 0.0;
+        if (this.rightHand3D && this.rightHand3D.userData.indexFinger) {
+          this.rightHand3D.userData.indexFinger.position.y = -pinchAngle * 0.25;
+        }
+
+        // 7. Rotate 3D Timeline Octahedrons gently
+        for (const node of this.timelineNodeMeshes) {
+          node.rotation.y += dt * 1.2;
+        }
+
+        // 8. Automated 45s Trailer Director Camera-Bobbing & Scripted Moves
+        if (this.trailerActive) {
+          const tSec = (performance.now() - this.trailerStartTime) / 1000;
+          while (
+            this.trailerStepIdx < this.trailerTimeline.length &&
+            tSec >= this.trailerTimeline[this.trailerStepIdx].t
+          ) {
+            this.trailerTimeline[this.trailerStepIdx].action();
+            this.trailerStepIdx++;
+          }
+          // Natural human head/camera bobbing + orbital sweep around the table
+          const sweepAngle = Math.sin(tSec * 0.22) * 0.65;
+          const bobY = Math.sin(tSec * 2.7) * 0.12;
+          const bobX = Math.cos(tSec * 1.9) * 0.08;
+          const dist = 7.4 - Math.sin(tSec * 0.15) * 1.1;
+          this.camera.position.set(
+            Math.sin(sweepAngle) * dist + bobX,
+            5.8 + bobY,
+            Math.cos(sweepAngle) * dist
+          );
+          this.camera.lookAt(bobX * 0.4, 0.25 + bobY * 0.3, 0);
+        } else if (!this.renderer.xr.isPresenting) {
+          // Smooth camera transition to chosen reference preset + subtle seated breathing motion
+          const breatheY = Math.sin(elapsed * 1.4) * 0.03;
+          const targetWithBreathe = this.cameraTargetPos.clone();
+          targetWithBreathe.y += breatheY;
+          this.camera.position.lerp(targetWithBreathe, 0.08);
+          this.camera.lookAt(this.cameraTargetLook);
+        }
+
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+
+    window.onload = () => {
+      const app = new DeskChessXRApp();
+      // Expose automation hooks for Playwright / IWSDK Emulator trailer recording script
+      window.__deskChessApp = app;
+      window.__startTrailerDirector = () => app.startTrailerDirector();
+    };
+  </script>
+</body>
+</html>
